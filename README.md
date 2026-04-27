@@ -1,148 +1,173 @@
-# LearnMart Marketplace
+# ShopX Marketplace
 
-LearnMart là project marketplace theo hướng `DDD + Microservices`, được mở rộng từ mô hình bookstore cũ sang catalog đa sản phẩm.
+**ShopX** là hệ thống thương mại điện tử được thiết kế theo mô hình **Domain-Driven Design (DDD)** và **Microservices Architecture**, kết hợp với **AI Recommendation Engine** dựa trên Knowledge Graph (Neo4j) và hành vi người dùng.
 
-Hiện tại hệ thống có:
-- `product_service` cho catalog chung
-- `order_service` cho cart, checkout, payment, shipping, order
-- `behavior_service` để lưu và aggregate hành vi người dùng
-- `ai_chat_service` dùng catalog, knowledge base, RAG và behavior profile để recommend
-- đã tích hợp pipeline AI Service gồm `data_user500.csv`, huấn luyện `RNN/LSTM/biLSTM`, chọn `model_best=biLSTM` và suy luận trực tiếp trong flow e-commerce
+> Đây là bài tập lớn môn **Kiến trúc và Thiết kế Phần mềm (SoAD)** – GVHD: Trần Đình Quế
 
-Catalog mẫu đã được mở rộng lên `10 nhóm sản phẩm` và `10 sản phẩm demo`.
+---
 
-## Services
+## Kiến trúc tổng quan
 
-Các service chính:
-- `auth_service` on `8001`
-- `product_service` on `8002`
-- `order_service` on `8003`
-- `customer_service` on `8004`
-- `staff_service` on `8005`
-- `marketing_service` on `8006`
-- `inventory_service` on `8007`
-- `content_service` on `8008`
-- `interaction_service` on `8009`
-- `analytics_service` on `8010`
-- `notification_service` on `8011`
-- `ai_chat_service` on `8012`
-- `behavior_service` on `8013`
-- `api_gateway` on `8000`
-- `frontend` on `4000`
-
-Infrastructure:
-- `MySQL` on host port `3307`
-- `RabbitMQ` on `5672`
-- `RabbitMQ Management UI` on `15672`
-
-## Catalog Demo
-
-10 nhóm sản phẩm mẫu:
-- `Sách`
-- `Dụng cụ học tập`
-- `Đồ chơi`
-- `Gói quà`
-- `Ba lô`
-- `Bình nước`
-- `Đồ điện tử học tập`
-- `Mỹ thuật`
-- `Đồ trang trí bàn học`
-- `Đồ lưu niệm`
-
-## Run Project
-
-Yêu cầu:
-- `Docker Desktop`
-- `docker compose`
-- nếu muốn chạy seed từ host: cần có `python` và package `requests`
-
-Chạy toàn bộ hệ thống:
-
-```bash
-docker compose up --build
+```
+Frontend (4000) → API Gateway (8000) → [Microservices]
+                                             ↓
+                                    MySQL (per-service DB)
+                                    Neo4j (RAG Knowledge Graph)
+                                    RabbitMQ (Async events)
 ```
 
-Chạy nền:
+### Tech Stack
+
+| Layer              | Technology                          |
+|--------------------|-------------------------------------|
+| **Core Services**  | Django 5.x + Django REST Framework  |
+| **AI Services**    | FastAPI + Neo4j + LSTM              |
+| **Database**       | MySQL 8.0 (per-service)             |
+| **Knowledge Graph**| Neo4j 5.x                           |
+| **Message Broker** | RabbitMQ 3                          |
+| **Container**      | Docker + Docker Compose             |
+| **Frontend**       | Vanilla JS SPA                      |
+
+---
+
+## Danh sách Services
+
+| Service              | Port  | Framework     | Bounded Context          |
+|----------------------|-------|---------------|--------------------------|
+| `api_gateway`        | 8000  | Nginx/Python  | Gateway                  |
+| `auth_service`       | 8001  | Django + DRF  | Identity & Access        |
+| `product_service`    | 8002  | Django + DRF  | Catalog                  |
+| `order_service`      | 8003  | Django + DRF  | Order & Checkout (Cart, Payment, Shipping) |
+| `customer_service`   | 8004  | FastAPI       | Customer Profile         |
+| `staff_service`      | 8005  | FastAPI       | Staff & Admin            |
+| `marketing_service`  | 8006  | FastAPI       | Promotions & Marketing   |
+| `inventory_service`  | 8007  | FastAPI       | Inventory & Procurement  |
+| `content_service`    | 8008  | FastAPI       | Content & CMS            |
+| `interaction_service`| 8009  | FastAPI       | Loyalty & Gift Cards     |
+| `analytics_service`  | 8010  | FastAPI       | Analytics & Reports      |
+| `notification_service`| 8011 | FastAPI      | Notifications            |
+| `ai_chat_service`    | 8012  | FastAPI       | AI RAG Recommendation    |
+| `behavior_service`   | 8013  | FastAPI       | User Behavior Tracking   |
+
+### Infrastructure
+
+| Service    | Port (host) | Mô tả                        |
+|------------|-------------|-------------------------------|
+| MySQL      | 3307        | Database cho tất cả service  |
+| Neo4j      | 7474 / 7687 | Knowledge Graph RAG           |
+| RabbitMQ   | 5672 / 15672| Message broker / Management  |
+
+---
+
+## Luồng nghiệp vụ chính
+
+### Checkout Flow
+```
+Customer bấm "Đặt hàng" 
+  → POST /orders/checkout 
+  → Order (PENDING) + Payment (Pending) + Shipping (PENDING) được tạo 
+  → Giỏ hàng deactivate
+```
+
+### RAG Auto-sync (Sản phẩm mới)
+```
+Staff tạo/sửa sản phẩm (product_service) 
+  → trigger_ai_sync() 
+  → POST http://ai_chat_service:8012/sync-product 
+  → upsert_product() cập nhật Node trong Neo4j ngay lập tức
+```
+
+### User Behavior → Recommendation
+```
+User tương tác (view/cart/search) 
+  → behavior_service ghi nhận event 
+  → graph_sync.py cập nhật đồ thị Neo4j 
+  → ai_chat_service truy vấn graph để cá nhân hóa gợi ý
+```
+
+---
+
+## Cách chạy
+
+### Yêu cầu
+- Docker Desktop đang chạy
+- Docker Compose v2+
+
+### Khởi động toàn bộ hệ thống
 
 ```bash
 docker compose up -d --build
 ```
 
-Dừng hệ thống:
+### Sau lần đầu build, chạy migrate cho order_service
 
 ```bash
-docker compose down
+docker compose exec order_service python manage.py migrate --fake-initial
 ```
 
-## Seed Data
-
-Project hiện có 3 nguồn seed chính:
-- [seed_catalog.py](/D:/This%20Semester/Analysis%20and%20Design/assignment_6_ddd_marketplace/seed_catalog.py): dữ liệu catalog dùng chung
-- [seed_data.py](/D:/This%20Semester/Analysis%20and%20Design/assignment_6_ddd_marketplace/seed_data.py): seed đầy đủ dữ liệu demo toàn hệ thống
-- [seed_ai_demo.py](/D:/This%20Semester/Analysis%20and%20Design/assignment_6_ddd_marketplace/seed_ai_demo.py): seed nhanh cho flow AI/behavior
-
-Seed đầy đủ:
+### Seed dữ liệu demo
 
 ```bash
 python seed_data.py
 ```
 
-Seed thêm dữ liệu AI demo:
+### Dừng hệ thống
 
 ```bash
-python seed_ai_demo.py
+docker compose down
 ```
 
-`seed_data.py` hiện sẽ seed các phần:
-- account customer và staff
-- categories, product types, brands, products
-- ratings và reviews
-- coupon, promotion, flash sale, membership tiers
-- customer profile, address, wishlist
-- warehouse, supplier, banner, blog, gift card
-- analytics search history và recently viewed
-- behavior events và behavior profile
+---
 
-## URLs
+## URLs quan trọng
 
-Truy cập chính:
-- Frontend: `http://localhost:4000`
-- API Gateway: `http://localhost:8000`
-- RabbitMQ UI: `http://localhost:15672`
+| Trang               | URL                              |
+|---------------------|----------------------------------|
+| Frontend            | http://localhost:4000            |
+| API Gateway         | http://localhost:8000            |
+| Neo4j Browser       | http://localhost:7474            |
+| RabbitMQ Management | http://localhost:15672           |
+| AI Chat API docs    | http://localhost:8012/docs       |
 
-Swagger docs:
-- `http://localhost:8001/docs`
-- `http://localhost:8002/docs`
-- `http://localhost:8003/docs`
-- `http://localhost:8004/docs`
-- `http://localhost:8005/docs`
-- `http://localhost:8006/docs`
-- `http://localhost:8007/docs`
-- `http://localhost:8008/docs`
-- `http://localhost:8009/docs`
-- `http://localhost:8010/docs`
-- `http://localhost:8011/docs`
-- `http://localhost:8012/docs`
-- `http://localhost:8013/docs`
+---
 
-## Demo Accounts
+## Tài khoản Demo
 
-Customer:
-- email: `demo@learnmart.vn`
-- password: `demo123`
+| Loại     | Email / Username     | Password   |
+|----------|----------------------|------------|
+| Customer | demo@shopx.vn        | demo123    |
+| Staff    | admin                | admin123   |
 
-Staff:
-- username: `admin`
-- password: `admin123`
+---
 
-## Notes
+## Cấu trúc thư mục
 
-- Nên dùng [docker-compose.yml](/D:/This%20Semester/Analysis%20and%20Design/assignment_6_ddd_marketplace/docker-compose.yml) thay cho [start_all.bat](/D:/This%20Semester/Analysis%20and%20Design/assignment_6_ddd_marketplace/start_all.bat), vì file batch này đang cũ và còn tham chiếu `BookStore`.
-- Một số service vẫn còn tên trường nội bộ như `book_id` ở database/model cũ. API layer đã map tương thích sang `product_id`.
-- `behavior_service` là nguồn dữ liệu hành vi cho AI recommendation và personalization.
-- `ai_chat_service` hiện dùng catalog hiện tại, knowledge base và behavior snapshot để trả lời.
+```
+assignment_6_ddd_marketplace/
+├── backend-services/
+│   ├── auth_service/          # Django + DRF
+│   ├── product_service/       # Django + DRF + RAG Webhook
+│   ├── order_service/         # Django + DRF (cart, orders, payment, shipping)
+│   ├── customer_service/      # FastAPI
+│   ├── marketing_service/     # FastAPI
+│   ├── inventory_service/     # FastAPI
+│   ├── ai_chat_service/       # FastAPI + Neo4j RAG
+│   ├── behavior_service/      # FastAPI + Neo4j Graph Sync
+│   └── ...
+├── frontend/                  # Vanilla JS SPA
+├── docs/
+│   ├── agent-docs/            # Tài liệu kiến trúc cho AI Agent
+│   └── raw-docs/              # Đề bài & form tiểu luận
+├── mysql-init/                # Script khởi tạo databases
+├── docker-compose.yml
+└── README.md
+```
 
+---
 
-## AI Service Assignment
+## Tài liệu bổ sung
 
-Xem thêm tài liệu triển khai chi tiết: `AI_SERVICE_ASSIGNMENT_REPORT.md`
+- [Kiến trúc chi tiết](docs/agent-docs/ARCHITECTURE.md)
+- [Hướng dẫn AI Service](docs/agent-docs/AI_SERVICE_ASSIGNMENT_REPORT.md)
+- [Sequence Diagrams](docs/agent-docs/SEQUENCE_DIAGRAMS_VP.md)
+- [DDD Refactor Notes](docs/agent-docs/DDD_REFACTOR_NOTES.md)

@@ -81,3 +81,24 @@ def debug_profile(user: dict = Depends(get_current_user)) -> dict:
     fallback_behavior = advisor.behavior_model.predict(snapshot.get("feature_values", {}))
     sequence_behavior = advisor.sequence_behavior_model.predict(snapshot)
     return {"snapshot": snapshot, "behavior": fallback_behavior.__dict__, "sequence_behavior": sequence_behavior.__dict__}
+
+
+class ProductSyncRequest(BaseModel):
+    id: int
+    title: str
+    price: float = 0
+    category_id: int | None = None
+    category_name: str | None = None
+    brand_name: str | None = None
+    description: str | None = None
+
+
+@app.post("/sync-product")
+def sync_product(body: ProductSyncRequest) -> dict:
+    """Webhook nhận từ product_service khi Staff tạo/sửa sản phẩm mới → cập nhật Neo4j ngay."""
+    try:
+        advisor.graph.upsert_product(body.dict())
+        return {"status": "ok", "product_id": body.id, "message": "Graph synced successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+

@@ -554,8 +554,7 @@ async function renderCart() {
   document.querySelectorAll('.rm-btn').forEach(b => b.addEventListener('click', async () => {
     await Order.removeItem(state.user.user_id, b.dataset.id); renderCart(); refreshCartBadge();
   }));
-  const aiSlotHtml = items.length ? '<div id="cart-ai-slot"></div>' : '';
-  app.innerHTML = app.innerHTML.replace('</div></div>`', '</div></div>' + aiSlotHtml + '`');
+
 
   document.querySelectorAll('.inc-btn').forEach(b => b.addEventListener('click', async () => {
     await Order.updateQty(state.user.user_id, b.dataset.id, parseInt(b.dataset.qty) + 1); renderCart();

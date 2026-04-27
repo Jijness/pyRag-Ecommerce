@@ -1,80 +1,53 @@
-# Kiến Trúc Hệ Thống: LearnMart Marketplace
+# Kiến Trúc Hệ Thống: ShopX Marketplace
 
 ## 1. Tổng quan
 
-**LearnMart Marketplace** là hệ thống thương mại điện tử được phát triển theo hướng **Domain-Driven Design (DDD)** và **Microservices**. Dự án được mở rộng từ mô hình bookstore cũ sang một marketplace đa sản phẩm, trong đó catalog hiện tại hỗ trợ 10 nhóm sản phẩm khác nhau như sách, dụng cụ học tập, đồ chơi, gói quà, ba lô, bình nước và các phụ kiện học tập.
+**ShopX Marketplace** là hệ thống thương mại điện tử được phát triển theo hướng **Domain-Driven Design (DDD)** và **Microservices Architecture**. Catalog hiện tại hỗ trợ **121 sản phẩm** thuộc **12 danh mục** khác nhau (Điện thoại, Laptop, Sách, Thời trang, Phụ kiện số, v.v.).
 
 Đặc điểm chính:
 - Triển khai bằng `Docker Compose`
-- **Kiến trúc Lai (Hybrid):** Kết hợp giữa **Django + DRF** (cho Core Services như Auth, Product) và **FastAPI** (cho AI và các service khác).
+- **Kiến trúc thuần Django:** Tất cả core services nghiệp vụ (Auth, Product, Order, Cart, Payment, Shipping) đều dùng **Django + DRF**
+- **AI & Behavior services** dùng **FastAPI** + Neo4j Knowledge Graph
 - `API Gateway` là điểm vào duy nhất ở cổng `8000`
-- Mỗi service có database riêng theo nguyên tắc `database per service`
-- Giao tiếp kết hợp giữa `REST` và `RabbitMQ`
-- Có `AI Chat Service` và `Behavior Service` để phục vụ recommendation và personalization
+- Mỗi service có database MySQL riêng theo nguyên tắc `database per service`
+- RAG Graph tự động đồng bộ khi Staff tạo/cập nhật sản phẩm (Webhook Auto-sync)
 
 ## 2. Thành phần hệ thống
 
 ### 2.1. Infrastructure Layer
 
-- `mysql`
-  - Cổng host: `3307`
-  - Lưu toàn bộ database cho các service
-- `rabbitmq`
-  - AMQP: `5672`
-  - Management UI: `15672`
-  - Dùng cho event-driven flow và các tác vụ bất đồng bộ
+- `mysql` – Cổng host: `3307` – Lưu toàn bộ database cho các Django service
+- `neo4j` – Cổng: `7474` (Browser), `7687` (Bolt) – Knowledge Graph cho AI RAG
+- `rabbitmq` – AMQP: `5672`, Management: `15672` – Message broker (dùng cho các event bất đồng bộ)
 
 ### 2.2. Gateway & Frontend
 
-- `api_gateway`
-  - Cổng: `8000`
-  - Đóng vai trò reverse proxy và entry point cho frontend
-  - Định tuyến request đến các microservice nội bộ
-- `frontend`
-  - Cổng: `4000`
-  - Giao diện người dùng cho customer, staff và popup AI assistant
+- `api_gateway` – Cổng `8000` – Reverse proxy, entry point
+- `frontend` – Cổng `4000` – SPA cho customer, staff và AI assistant popup
 
 ## 3. Danh sách microservices
 
-Hệ thống hiện tại có các backend service sau:
-
 ### 3.1. Auth Service
-- Cổng: `8001`
-- Framework: **Django + DRF**
-- Bounded context: `Identity / Access`
-- Chức năng:
-  - đăng ký customer
-  - đăng nhập customer và staff (sử dụng SimpleJWT)
-  - xác thực token
-  - phân quyền cơ bản (Customer/Staff)
+- Cổng: `8001` | Framework: **Django + DRF** | Bounded context: `Identity / Access`
+- Chức năng: Đăng ký/đăng nhập Customer & Staff, xác thực JWT, phân quyền RBAC.
 
 ### 3.2. Product Service
-- Cổng: `8002`
-- Framework: **Django + DRF**
-- Bounded context: `Catalog`
-- Chức năng:
-  - quản lý `categories`
-  - quản lý `products` (Sử dụng `JSONField` cho đa dạng thuộc tính)
-- Đây là service áp dụng DDD rõ nhất trong repo, với các lớp:
-  - `domain`
-  - `application`
-  - `infrastructure`
-  - `presentation`
+- Cổng: `8002` | Framework: **Django + DRF** | Bounded context: `Catalog`
+- Chức năng: Quản lý `categories`, `products`, `brands`, `product-types`, `reviews`, `ratings`.
+- **RAG Auto-sync Webhook:** Khi Staff tạo/sửa sản phẩm → tự động `POST /sync-product` sang `ai_chat_service` để cập nhật Neo4j Graph ngay lập tức.
 
 ### 3.3. Order Service
-- Cổng: `8003`
-- Bounded context: `Order & Checkout`
+- Cổng: `8003` | Framework: **Django + DRF** | Bounded context: `Order & Checkout`
+- Database: `order_db`
+- Apps nội bộ: `cart`, `orders`, `payment`, `shipping`
 - Chức năng:
-  - quản lý `cart` và `cart_item`
-  - checkout
-  - tạo `order` và `order_item`
-  - quản lý `payment`
-  - quản lý `shipping`
-  - quản lý `refund`
+  - `cart/`: Quản lý giỏ hàng (GET, POST add, PATCH qty, DELETE item/clear, GET summary)
+  - `orders/`: Checkout, xem lịch sử đơn hàng, cập nhật trạng thái, thống kê
+  - `payment/`: Lưu trạng thái thanh toán, phương thức, giao dịch
+  - `shipping/`: Lưu trạng thái vận chuyển, phí ship, tracking number
+- Luồng Checkout: `POST /orders/checkout` → tạo Order (PENDING) → tạo Payment + Shipping → giỏ hàng tự deactivate
 
-Lưu ý:
-- Trong project hiện tại, `cart`, `payment` và `shipping` vẫn nằm trong `order_service`
-- Đây là lựa chọn thực dụng vì chúng thuộc cùng flow nghiệp vụ checkout
+
 
 ### 3.4. Customer Service
 - Cổng: `8004`

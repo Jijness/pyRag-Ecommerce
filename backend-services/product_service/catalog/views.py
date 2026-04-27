@@ -3,6 +3,10 @@ from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import action
 from datetime import datetime
+import httpx
+import logging
+
+logger = logging.getLogger(__name__)
 
 from .models import Category, Product, Review, Rating
 from .serializers import CategorySerializer, ProductSerializer, ReviewSerializer, RatingSerializer
@@ -64,6 +68,36 @@ class ProductViewSet(viewsets.ModelViewSet):
         ratings = Rating.objects.filter(product=product).order_by('-created_at')
         serializer = RatingSerializer(ratings, many=True)
         return Response(serializer.data)
+
+    def trigger_ai_sync(self, product):
+        try:
+            # We call the new /sync-product endpoint in ai_chat_service
+            # We run it synchronously for simplicity in this version
+            payload = {
+                "id": product.id,
+                "title": product.name,
+                "price": float(product.price),
+                "category_id": product.category_id,
+                "category_name": product.category.name if product.category else "Unknown",
+                "brand_name": "ShopX",
+                "description": product.description
+            }
+            with httpx.Client(timeout=3.0) as client:
+                res = client.post("http://ai_chat_service:8012/sync-product", json=payload)
+                if res.status_code == 200:
+                    logger.info(f"AI sync successful for product {product.id}")
+                else:
+                    logger.warning(f"AI sync failed: {res.status_code} {res.text}")
+        except Exception as e:
+            logger.error(f"Error calling ai_chat_service sync: {e}")
+
+    def perform_create(self, serializer):
+        product = serializer.save()
+        self.trigger_ai_sync(product)
+
+    def perform_update(self, serializer):
+        product = serializer.save()
+        self.trigger_ai_sync(product)
 
 class HealthView(views.APIView):
     permission_classes = [AllowAny]

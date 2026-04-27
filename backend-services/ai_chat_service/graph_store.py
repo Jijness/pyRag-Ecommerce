@@ -118,6 +118,43 @@ class GraphKBStore:
                     product_type_name=product_type_name,
                 )
 
+    def upsert_product(self, product: dict) -> None:
+        """Đồng bộ ngay một sản phẩm đơn lẻ vào Neo4j – gọi từ webhook khi staff tạo/cập nhật."""
+        driver = self._connect()
+        product_id = product.get("id")
+        if product_id is None:
+            return
+        category_name = product.get("category_name")
+        brand_name = product.get("brand_name")
+        with driver.session() as session:
+            session.run(
+                """
+                MERGE (p:Product {id: $product_id})
+                SET p.title = $title,
+                    p.price = $price,
+                    p.description = $description,
+                    p.category_name = $category_name,
+                    p.brand_name = $brand_name
+                WITH p
+                FOREACH (_ IN CASE WHEN $category_name IS NULL THEN [] ELSE [1] END |
+                    MERGE (c:Category {name: $category_name})
+                    MERGE (p)-[:BELONGS_TO]->(c)
+                )
+                FOREACH (_ IN CASE WHEN $brand_name IS NULL THEN [] ELSE [1] END |
+                    MERGE (b:Brand {name: $brand_name})
+                    MERGE (p)-[:HAS_BRAND]->(b)
+                )
+                """,
+                product_id=product_id,
+                title=product.get("title") or product.get("name"),
+                price=float(product.get("price", 0) or 0),
+                description=product.get("description"),
+                category_name=category_name,
+                brand_name=brand_name,
+            )
+
+
+
     def sync_marketing(self) -> None:
         driver = self._connect()
         marketing_url = os.getenv("MARKETING_SERVICE_URL", "http://localhost:8006")
