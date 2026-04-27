@@ -1,0 +1,1 @@
+# marketing config package
