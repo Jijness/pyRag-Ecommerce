@@ -40,7 +40,7 @@ class GraphKBStore:
     def _get_json(self, url: str, default: Any) -> Any:
         try:
             with httpx.Client(timeout=httpx.Timeout(self.timeout, connect=self.timeout)) as client:
-                response = client.get(url)
+                response = client.get(url, headers={"Host": "localhost"})
                 if response.is_success:
                     return response.json()
         except Exception:
@@ -201,6 +201,105 @@ class GraphKBStore:
                     discount_percent=float(tier.get("discount_percent", 0) or 0),
                     free_shipping=bool(tier.get("free_shipping", False)),
                 )
+
+    def sync_user_knowledge_graph(self, customer_id: int, snapshot: dict[str, Any]) -> None:
+        driver = self._connect()
+        with driver.session() as session:
+            session.run("MERGE (u:User {id: $customer_id})", customer_id=customer_id)
+            
+            preferred_categories = snapshot.get("preferred_categories", [])
+            for weight, cat_name in enumerate(reversed(preferred_categories), start=1):
+                session.run(
+                    """
+                    MATCH (u:User {id: $customer_id})
+                    MERGE (c:Category {name: $cat_name})
+                    MERGE (u)-[r:INTERESTED_IN]->(c)
+                    SET r.weight = $weight
+                    """,
+                    customer_id=customer_id,
+                    cat_name=cat_name,
+                    weight=weight,
+                )
+
+            recent_views = snapshot.get("recent_views", []) or []
+            wishlist = (snapshot.get("wishlist") or {}).get("items", []) or []
+            orders = snapshot.get("orders", []) or []
+            
+            interacted: dict[int, int] = {}
+            for item in recent_views:
+                pid = item.get("product_id")
+                if pid: interacted[pid] = interacted.get(pid, 0) + 1
+            for item in wishlist:
+                pid = item.get("product_id")
+                if pid: interacted[pid] = interacted.get(pid, 0) + 3
+            for order in orders:
+                for item in order.get("items", []) or []:
+                    pid = item.get("product_id")
+                    if pid: interacted[pid] = interacted.get(pid, 0) + 5
+            
+            for pid, weight in interacted.items():
+                session.run(
+                    """
+                    MATCH (u:User {id: $customer_id})
+                    MERGE (p:Product {id: $product_id})
+                    MERGE (u)-[r:INTERACTED_WITH]->(p)
+                    SET r.weight = coalesce(r.weight, 0) + $weight
+                    """,
+                    customer_id=customer_id,
+                    product_id=pid,
+                    weight=weight,
+                )
+
+            searches = snapshot.get("searches", []) or []
+            for search in searches:
+                query = search.get("query") or search.get("search_term")
+                if query:
+                    session.run(
+                        """
+                        MATCH (u:User {id: $customer_id})
+                        MERGE (q:Query {text: $query})
+                        MERGE (u)-[:SEARCHED]->(q)
+                        """,
+                        customer_id=customer_id,
+                        query=query.lower(),
+                    )
+
+            cart_items = (snapshot.get("cart") or {}).get("items", []) or []
+            for item in cart_items:
+                pid = item.get("product_id")
+                if pid:
+                    session.run(
+                        """
+                        MATCH (u:User {id: $customer_id})
+                        MERGE (p:Product {id: $product_id})
+                        MERGE (u)-[:ADDED_TO_CART]->(p)
+                        """,
+                        customer_id=customer_id,
+                        product_id=pid,
+                    )
+
+    def sync_inferred_knowledge(self) -> None:
+        driver = self._connect()
+        with driver.session() as session:
+            session.run(
+                """
+                MATCH (u:User)-[:INTERACTED_WITH]->(p1:Product)
+                MATCH (u)-[:INTERACTED_WITH]->(p2:Product)
+                WHERE p1.id < p2.id AND u.id > 0
+                MERGE (p1)-[r:BOUGHT_TOGETHER]-(p2)
+                ON CREATE SET r.weight = 1
+                ON MATCH SET r.weight = r.weight + 1
+                """
+            )
+            session.run(
+                """
+                MATCH (u1:User)-[:INTERACTED_WITH]->(p:Product)<-[:INTERACTED_WITH]-(u2:User)
+                WHERE u1.id < u2.id AND u1.id > 0 AND u2.id > 0
+                MERGE (u1)-[r:SIMILAR_TO]-(u2)
+                ON CREATE SET r.weight = 1
+                ON MATCH SET r.weight = r.weight + 1
+                """
+            )
 
     def get_context(self, customer_id: int, question: str, top_k: int = 5) -> dict[str, Any]:
         driver = self._connect()

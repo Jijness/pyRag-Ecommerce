@@ -25,8 +25,9 @@ class ServiceClient:
 
     def _get_json(self, url: str, default: Any) -> Any:
         try:
+            headers = {"Host": "localhost"}
             with httpx.Client(timeout=httpx.Timeout(self.timeout, connect=self.timeout)) as client:
-                response = client.get(url)
+                response = client.get(url, headers=headers)
                 if response.is_success:
                     return response.json()
         except Exception:

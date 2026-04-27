@@ -150,36 +150,36 @@ class BehaviorGraphSync:
                 session.run(
                     """
                     MERGE (u:User {id: $customer_id})
-                    MERGE (q:Query {text: $query})
+                    MERGE (q:Query {text: $search_query})
                     MERGE (u)-[r:SEARCHED]->(q)
                     ON CREATE SET r.weight = $weight, r.last_event_at = $occurred_at
                     ON MATCH SET r.weight = coalesce(r.weight, 0) + $weight, r.last_event_at = $occurred_at
                     """,
                     customer_id=customer_id,
-                    query=query,
+                    search_query=query,
                     weight=weight,
                     occurred_at=occurred_at,
                 )
                 session.run(
                     """
                     MERGE (e:BehaviorEvent {id: $event_id})
-                    MERGE (q:Query {text: $query})
+                    MERGE (q:Query {text: $search_query})
                     MERGE (e)-[:ABOUT_QUERY]->(q)
                     """,
                     event_id=event_id,
-                    query=query,
+                    search_query=query,
                 )
 
                 if product_id:
                     session.run(
                         """
-                        MERGE (q:Query {text: $query})
+                        MERGE (q:Query {text: $search_query})
                         MERGE (p:Product {id: $product_id})
                         MERGE (q)-[r:MATCHES]->(p)
                         ON CREATE SET r.weight = $weight
                         ON MATCH SET r.weight = coalesce(r.weight, 0) + $weight
                         """,
-                        query=query,
+                        search_query=query,
                         product_id=product_id,
                         weight=weight,
                     )

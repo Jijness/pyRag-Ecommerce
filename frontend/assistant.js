@@ -32,11 +32,11 @@ function appendAiMessage(role, text, topProducts = []) {
 
   if (role === 'bot' && topProducts && topProducts.length) {
     inner += '<div class="ai-products">' + topProducts.map((b) => `
-      <div class="ai-product-card">
-        <div class="ai-product-title">${aiEscape(b.title)}</div>
+      <a href="#/product/${b.id || b.product_id}" class="ai-product-card" onclick="closeAiPopup()" style="text-decoration:none; color:inherit; display:block;">
+        <div class="ai-product-title">${aiEscape(b.title || b.name)}</div>
         <div class="ai-product-price">${Number(b.price || 0).toLocaleString('vi-VN')}đ</div>
         <div class="ai-product-desc">${aiEscape(b.description || 'Sản phẩm đang có trong catalog hiện tại.')}</div>
-      </div>
+      </a>
     `).join('') + '</div>';
   }
 

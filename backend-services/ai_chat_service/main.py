@@ -36,6 +36,7 @@ def startup() -> None:
     advisor.graph.ensure_ready()
     advisor.graph.sync_catalog()
     advisor.graph.sync_marketing()
+    advisor.graph.sync_inferred_knowledge()
 
 
 @app.get("/")

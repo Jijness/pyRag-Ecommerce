@@ -13,17 +13,33 @@ const API = {
   behavior: 'http://localhost:8013',
 };
 
-async function req(url, opts = {}) {
+async function req(url, opts = {}, retryCount = 0) {
   const token = localStorage.getItem('token');
   const headers = { 'Content-Type': 'application/json', ...opts.headers };
   if (token) headers['Authorization'] = 'Bearer ' + token;
   const res = await fetch(url, { ...opts, headers });
   if (!res.ok) {
     if (res.status === 401 && window.location.hash !== '#/login') {
+      const refreshToken = localStorage.getItem('refresh_token');
+      if (refreshToken && retryCount === 0) {
+        try {
+          const refreshRes = await fetch(`${API.auth}/auth/refresh`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh: refreshToken })
+          });
+          if (refreshRes.ok) {
+            const refreshData = await refreshRes.json();
+            localStorage.setItem('token', refreshData.access);
+            return req(url, opts, 1);
+          }
+        } catch (e) {}
+      }
       if (typeof window.logout === 'function') {
         window.logout(true);
       } else {
         localStorage.removeItem('token');
+        localStorage.removeItem('refresh_token');
         localStorage.removeItem('user');
         window.location.hash = '#/login';
       }
@@ -65,7 +81,7 @@ const Product = {
   updateStock: (id, q) => patch(`${API.product}/products/${id}/stock?quantity=${q}`),
   categories: () => get(`${API.product}/categories`),
   productTypes: () => get(`${API.product}/product-types`),
-  brands: () => get(`${API.product}/brands`),
+  brands: () => Promise.resolve([]),
   createCategory: b => post(`${API.product}/categories`, b),
   createProductType: b => post(`${API.product}/product-types`, b),
   createBrand: b => post(`${API.product}/brands`, b),

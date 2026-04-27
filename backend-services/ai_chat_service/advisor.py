@@ -11,16 +11,18 @@ from graph_store import GraphKBStore
 from kb_store import KBStore
 
 CATEGORY_ALIASES = {
-    "Sách": ["sach", "book", "truyen", "self help", "tieu thuyet", "fantasy"],
-    "Dụng cụ học tập": ["dung cu hoc tap", "but", "vo", "so", "stationery", "highlight"],
-    "Đồ chơi": ["do choi", "lego", "toy", "xep hinh"],
-    "Gói quà": ["goi qua", "gift", "combo", "qua tang"],
-    "Ba lô": ["ba lo", "balo", "backpack", "cap", "tui di hoc"],
-    "Bình nước": ["binh nuoc", "binh giu nhiet", "water bottle", "locknlock"],
-    "Đồ điện tử học tập": ["do dien tu hoc tap", "may tinh", "calculator", "study tech"],
-    "Mỹ thuật": ["my thuat", "ve", "chi mau", "art", "thu cong"],
-    "Đồ trang trí bàn học": ["do trang tri ban hoc", "den ban", "desk decor", "goc hoc tap"],
-    "Đồ lưu niệm": ["do luu niem", "moc khoa", "souvenir", "qua nho", "capybara"],
+    "Sách": ["sach", "book", "truyen", "self help", "tieu thuyet", "fantasy", "van hoc", "doc sach", "nguoi doc", "moi doc"],
+    "Điện thoại": ["dien thoai", "phone", "iphone", "samsung", "smartphone", "di dong"],
+    "Laptop": ["laptop", "may tinh xach tay", "macbook", "notebook"],
+    "Thời trang Nam": ["thoi trang nam", "quan ao nam", "ao thun nam", "quan nam"],
+    "Thời trang Nữ": ["thoi trang nu", "quan ao nu", "ao nu", "vay", "dam"],
+    "Đồ gia dụng": ["do gia dung", "bep", "nha cua", "noi", "chao", "may xay"],
+    "Đồ chơi": ["do choi", "lego", "toy", "xep hinh", "mo hinh", "gundam", "board game"],
+    "Văn phòng phẩm": ["van phong pham", "but", "vo", "so", "stationery", "highlight", "thuoc ke", "gom", "hop but"],
+    "Làm đẹp": ["lam dep", "my pham", "son", "makeup", "skincare", "duong da"],
+    "Sức khỏe": ["suc khoe", "may do huyet ap", "thuc pham chuc nang", "vitamin"],
+    "Bách hóa online": ["bach hoa", "do an", "banh keo", "nuoc uong", "sua", "mi goi"],
+    "Phụ kiện số": ["phu kien", "tai nghe", "headphone", "earphone", "chuot may tinh", "ban phim", "ipad", "may tinh bang", "cap sac", "usb", "webcam", "dong ho thong minh", "op lung", "kinh cuong luc"],
 }
 
 POLICY_KEYWORDS = [
@@ -39,6 +41,8 @@ POLICY_KEYWORDS = [
     "checkout",
     "thanh toan",
     "payment",
+    "chinh sach",
+    "bao hanh"
 ]
 
 PRODUCT_KEYWORDS = [
@@ -52,14 +56,20 @@ PRODUCT_KEYWORDS = [
     "qua",
     "do dung",
     "phu kien",
+    "dien thoai",
+    "laptop",
+    "tai nghe",
+    "ban phim"
 ]
 
 PURCHASE_KEYWORDS = ["mua", "muon mua", "dat mua", "can mua", "tim mua", "chot", "lay"]
-AVAILABILITY_KEYWORDS = ["co ban", "shop co", "cua hang co", "ben minh co", "co khong"]
+AVAILABILITY_KEYWORDS = ["co nhung loai", "co nhung mat hang", "shop co nhung", "co ban", "shop co", "cua hang co", "ben minh co", "co khong", "shop ban", "dang ban"]
+CATALOG_LIST_KEYWORDS = ["loai mat hang", "mat hang nao", "ban nhung gi", "co nhung gi", "san pham nao", "hang hoa gi", "shop co gi"]
 
 
 def _searchable_text(value: str) -> str:
-    normalized = unicodedata.normalize("NFKD", value or "")
+    value = (value or "").replace("đ", "d").replace("Đ", "D")
+    normalized = unicodedata.normalize("NFKD", value)
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", " ", ascii_text.lower()).strip()
 
@@ -117,6 +127,8 @@ def detect_categories_strict(question: str) -> list[str]:
 
 def classify_intent(question: str) -> str:
     q = _searchable_text(question)
+    if any(keyword in q for keyword in CATALOG_LIST_KEYWORDS):
+        return "catalog_list"
     if any(keyword in q for keyword in AVAILABILITY_KEYWORDS):
         return "availability_query"
     if any(keyword in q for keyword in PURCHASE_KEYWORDS):
@@ -128,10 +140,10 @@ def classify_intent(question: str) -> str:
     return "general"
 
 
-def find_explicit_product(question: str, products: list[dict[str, Any]]) -> dict[str, Any] | None:
+def find_explicit_product(question: str, products: list[dict[str, Any]], target_categories: list[str] = None) -> tuple[dict[str, Any] | None, bool]:
     q_norm = _searchable_text(question)
     if not q_norm:
-        return None
+        return None, False
 
     matches: list[tuple[float, dict[str, Any]]] = []
     for product in products:
@@ -140,26 +152,39 @@ def find_explicit_product(question: str, products: list[dict[str, Any]]) -> dict
         if not title:
             continue
         title_norm = _searchable_text(title)
+        # Bỏ prefix thông dụng "sach" (vd: "Sách Đắc Nhân Tâm" -> "dac nhan tam")
+        stripped_title = re.sub(r"^(sach|cuon|quyen|sach giao khoa)\s+", "", title_norm).strip()
         sku_norm = _searchable_text(sku)
         score = 0.0
-        if title_norm and title_norm in q_norm:
-            score = 10.0 + len(title_norm) / 100
-        elif sku_norm and sku_norm in q_norm:
+        is_exact = False
+        for t in [title_norm, stripped_title]:
+            if t and t in q_norm:
+                score = max(score, 10.0 + len(t) / 100)
+                is_exact = True
+        if not score and sku_norm and sku_norm in q_norm:
             score = 9.0
-        else:
-            tokens = [token for token in title_norm.split() if len(token) >= 3]
+            is_exact = True
+        if not score:
+            tokens = [token for token in stripped_title.split() if len(token) >= 3]
             hits = sum(1 for token in tokens if token in q_norm)
             if tokens:
                 coverage = hits / len(tokens)
-                if hits >= 2 or coverage >= 0.6:
+                # Match 1 token dài >= 5 ký tự cũng đủ (tên riêng như "capybara", "moleskine")
+                strong_hit = any(len(token) >= 5 and token in q_norm for token in tokens)
+                if hits >= 2 or coverage >= 0.6 or (strong_hit and coverage >= 0.4):
                     score = 5.0 + coverage
         if score > 0:
-            matches.append((score, product))
+            if target_categories:
+                if product.get("category_name") in target_categories:
+                    score += 20.0
+                elif not is_exact:
+                    continue
+            matches.append((score, product, is_exact))
 
     if not matches:
-        return None
+        return None, False
     matches.sort(key=lambda item: (-item[0], float(item[1].get("price", 0) or 0)))
-    return matches[0][1]
+    return matches[0][1], matches[0][2]
 
 
 def _product_text(product: dict[str, Any]) -> str:
@@ -436,19 +461,34 @@ class MarketplaceAdvisor:
         kb_hits = self.kb.search(question, top_k=4)
         categories = snapshot.get("categories", [])
         products = snapshot.get("products", [])
-        explicit_product = find_explicit_product(question, products)
+        strict_categories = detect_categories_strict(question)
+        explicit_product, is_exact = find_explicit_product(question, products, target_categories=strict_categories)
         preferred = snapshot.get("preferred_categories", [])
         greeting = f"Mình đang tư vấn cho {user_name}."
-        strict_categories = detect_categories_strict(question)
         category_lookup = {item.get("id"): item.get("name") for item in categories}
+        
+        try:
+            self.graph.sync_user_knowledge_graph(customer_id, snapshot)
+        except Exception as e:
+            print(f"Error syncing user graph: {e}")
+            
         graph_context = self.graph.get_context(customer_id, question, top_k=6)
         top_products = self._score_products(products, categories, snapshot, question, graph_context=graph_context)[:3]
 
         if intent == "availability_query":
             if explicit_product:
                 category_name = self._category_name(explicit_product, category_lookup)
+                
+                if is_exact:
+                    ans = self._format_availability_answer(user_name, explicit_product, category_name, [explicit_product])
+                else:
+                    title = explicit_product.get("title") or explicit_product.get("name") or "Sản phẩm"
+                    price = int(float(explicit_product.get("price", 0) or 0))
+                    ans = (f"Hiện mình không tìm thấy sản phẩm chính xác như bạn yêu cầu, nhưng shop có {title} "
+                           f"với giá {price:,}đ. Bạn xem thử có phù hợp không nhé.")
+
                 return {
-                    "answer": self._format_availability_answer(user_name, explicit_product, category_name, [explicit_product]),
+                    "answer": ans,
                     "top_products": [explicit_product],
                     "kb_hits": [hit.__dict__ for hit in kb_hits],
                     "behavior": behavior.__dict__,
@@ -462,6 +502,23 @@ class MarketplaceAdvisor:
                     for product in products
                     if self._category_name(product, category_lookup) == requested_category
                 ]
+                # Kiểm tra xem có sản phẩm nào khớp từ khoá cụ thể (vd: "balo") không
+                q_norm = _searchable_text(question)
+                keyword_matched = [
+                    p for p in matched_products
+                    if any(token in _searchable_text(str(p.get("title") or p.get("name") or ""))
+                           for token in q_norm.split() if len(token) >= 4)
+                ]
+                if keyword_matched:
+                    matched_products = keyword_matched
+                elif not matched_products:
+                    return {
+                        "answer": f"Rất tiếc, shop hiện chưa có sản phẩm {requested_category.lower()} mà bạn tìm. Bạn thử hỏi mình về danh mục khác như điện thoại, sách, đồ gia dụng nhé.",
+                        "top_products": [],
+                        "kb_hits": [hit.__dict__ for hit in kb_hits],
+                        "behavior": behavior.__dict__,
+                        "graph_context": graph_context,
+                    }
                 matched_products.sort(
                     key=lambda product: (
                         int(product.get("stock_quantity", 0) or 0) <= 0,
@@ -477,7 +534,10 @@ class MarketplaceAdvisor:
                 }
 
             return {
-                "answer": "Mình có thể kiểm tra theo tên sản phẩm hoặc theo nhóm như sách, ba lô, đồ chơi, bình nước. Bạn gửi cụ thể hơn giúp mình.",
+                "answer": (
+                    f"Mình chưa tìm thấy sản phẩm bạn cần. Shop có sách, điện thoại, laptop, phụ kiện số, "
+                    "thời trang, đồ gia dụng, làm đẹp, sức khỏe... Bạn thử gửi tên cụ thể hơn nhé."
+                ),
                 "top_products": [],
                 "kb_hits": [hit.__dict__ for hit in kb_hits],
                 "behavior": behavior.__dict__,
@@ -517,6 +577,38 @@ class MarketplaceAdvisor:
             intent = "product_recommendation"
 
         if intent == "product_recommendation":
+            # Ưu tiên: nếu tìm được sản phẩm
+            if explicit_product:
+                category_name = self._category_name(explicit_product, category_lookup)
+                price = int(float(explicit_product.get("price", 0) or 0))
+                stock = int(explicit_product.get("stock_quantity", 0) or 0)
+                title = explicit_product.get("title") or explicit_product.get("name") or "Sản phẩm"
+                desc = explicit_product.get("description") or ""
+                
+                if is_exact:
+                    lines = [
+                        greeting, "",
+                        f"{title} - {price:,}đ",
+                        f"Danh mục: {category_name}",
+                        f"Tình trạng: {'Còn hàng' if stock > 0 else 'Tạm hết hàng'}",
+                    ]
+                else:
+                    lines = [
+                        greeting, "",
+                        f"Mình không tìm thấy chính xác sản phẩm đó, nhưng bạn xem qua {title} ({price:,}đ) thuộc nhóm {category_name} nhé.",
+                        f"Tình trạng: {'Còn hàng' if stock > 0 else 'Tạm hết hàng'}",
+                    ]
+                
+                if desc:
+                    lines.append(f"Mô tả: {desc}")
+                lines.append("Bạn muốn mình thêm vào giỏ hàng hoặc tìm thêm sản phẩm cùng nhóm không?")
+                return {
+                    "answer": "\n".join(lines),
+                    "top_products": [explicit_product],
+                    "kb_hits": [hit.__dict__ for hit in kb_hits],
+                    "behavior": behavior.__dict__,
+                    "graph_context": graph_context,
+                }
             scoped_products = top_products
             if strict_categories:
                 scoped_products = self._score_products(
@@ -568,16 +660,34 @@ class MarketplaceAdvisor:
             }
 
         if intent == "policy":
-            lines = [greeting, "", "Mình tóm tắt ngắn gọn như sau:"]
-            dynamic = self._dynamic_context(snapshot)
-            if dynamic:
-                lines.append("\nDựa trên trạng thái hiện tại của tài khoản và giỏ hàng:")
-                lines.append(dynamic)
+            lines = [greeting, ""]
+            if kb_hits:
+                best_hit = kb_hits[0]
+                lines.append(f"Theo '{best_hit.title}':")
+                lines.append(f"{best_hit.content}")
+                lines.append("")
             else:
-                lines.append("\nMình đang trả lời dựa trên chính sách và dữ liệu hệ thống hiện tại.")
+                lines.append("Mình tóm tắt ngắn gọn như sau:")
+
+            dynamic = self._dynamic_context(snapshot)
+            if dynamic and not kb_hits:
+                lines.append("Dựa trên trạng thái hiện tại của tài khoản và giỏ hàng:")
+                lines.append(dynamic)
+            elif not kb_hits:
+                lines.append("Mình đang trả lời dựa trên chính sách và dữ liệu hệ thống hiện tại.")
             return {
                 "answer": "\n".join(lines),
                 "top_products": [],
+                "kb_hits": [hit.__dict__ for hit in kb_hits],
+                "behavior": behavior.__dict__,
+                "graph_context": graph_context,
+            }
+
+        if intent == "catalog_list":
+            cats_in_catalog = sorted(set(self._category_name(p, category_lookup) for p in products if self._category_name(p, category_lookup) != "Khác"))
+            return {
+                "answer": f"{greeting}\n\nShop hiện đang bán các nhóm hàng sau:\n" + "\n".join(f"• {c}" for c in cats_in_catalog),
+                "top_products": [item["product"] for item in top_products],
                 "kb_hits": [hit.__dict__ for hit in kb_hits],
                 "behavior": behavior.__dict__,
                 "graph_context": graph_context,
@@ -609,6 +719,12 @@ class MarketplaceAdvisor:
         recent_search_terms = snapshot.get("recent_search_terms", [])
         preferred_categories = snapshot.get("preferred_categories", [])
         synthetic_question = " ".join(recent_search_terms[-3:] + preferred_categories[:2]).strip() or "goi y san pham phu hop"
+        
+        try:
+            self.graph.sync_user_knowledge_graph(customer_id, snapshot)
+        except Exception as e:
+            print(f"Error syncing user graph: {e}")
+            
         graph_context = self.graph.get_context(customer_id, synthetic_question, top_k=max(limit, 6))
         ranked = self._score_products(
             snapshot.get("products", []),

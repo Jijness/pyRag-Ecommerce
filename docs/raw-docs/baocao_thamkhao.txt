@@ -1,0 +1,962 @@
+MỤC LỤC
+I. Mô tả AI Service .............................................................................................................. 4
+1.1. Mục tiêu của AI Service ........................................................................................... 4
+1.2. Dữ liệu đầu vào và đầu ra......................................................................................... 4
+1.3. Luồng xử lý tổng quát .............................................................................................. 5
+1.4. Vai trò của AI Service trong project ......................................................................... 5
+II. Sinh tập dữ liệu ............................................................................................................... 5
+2.1. Code sinh tập dữ liệu................................................................................................ 5
+2.2. Tập dữ liệu được sinh ra ......................................................................................... 10
+III. Code train model ......................................................................................................... 10
+3.1. Code và giải thích................................................................................................... 10
+3.2. Biểu đồ so sánh....................................................................................................... 19
+3.3. Bảng tổng hợp kết quả............................................................................................ 21
+iV. Knowledge base ........................................................................................................... 23
+4.1. KB text.................................................................................................................... 23
+4.2. KB graph................................................................................................................. 23
+V. xây dựng rag và chat dựa trên kb_Graph ...................................................................... 24
+5.1. Tìm kiếm văn bản bằng Vector (KBStore)............................................................. 24
+5.2. Knowledge Graph Context (Graph KBStore) ........................................................ 25
+5.3. Tích hợp vào luồng tư vấn...................................................................................... 26
+Vi. Triển khai và tích hợp trong hệ e-commerce ............................................................... 27
+6.1. Quá trình khởi động AI và Graph Mapping ........................................................... 27
+6.2. Tích hợp API Chat vào User Flow e-commerce..................................................... 27
+6.3. Tích hợp vào Search (Tìm kiếm) – Gián tiếp (Read-only)..................................... 28
+6.4. Tích hợp vào giỏ hàng – Đọc realtime, ảnh hưởng nội dung chat ......................... 30
+6.5. Tích hợp vào hành vi người dùng........................................................................... 31
+vii. Giao diện ..................................................................................................................... 34
+7.1. Giao diện chat bot................................................................................................... 34
+7.2. Giao diện giỏ hàng.................................................................................................. 35
+7.3. Giao diện tìm kiếm ................................................................................................. 36
+7.4. KB Graph sau khi user tương tác ........................................................................... 36
+
+----
+dưới đây là các phần trọng tâm text trình bày trong báo cáo tham khảo được.
+1.2. Dữ liệu đầu vào và đầu ra
+Mỗi dòng dữ liệu trong data_user500.csv chứa các thuộc tính như user_id, session_id,
+step, timestamp, product_id, category_name, action, price, quantity, query, persona_label,
+next_best_action và price_sensitivity. Trong đó action là biến quan sát theo thời gian;
+persona_label và next_best_action là hai nhãn mục tiêu để mô hình học dự đoán.
+Đầu vào của AI Service Đầu ra của AI Service
+Chuỗi hành vi của user được mã hóa từ
+các action search, view, click, add_to_cart,
+wishlist, coupon_view, checkout,
+purchase.
+1) Persona của user;
+2) Next best action để hệ thống đề xuất
+gợi ý phù hợp.
+1.3. Luồng xử lý tổng quát
+• Bước 1: sinh dữ liệu hành vi cho 500 user với 8 hành vi cốt lõi của e-commerce.
+• Bước 2: gom các hành vi theo user thành sequence để phục vụ huấn luyện.
+• Bước 3: huấn luyện 3 mô hình RNN, LSTM và biLSTM trên cùng một tập dữ liệu.
+• Bước 4: đánh giá bằng accuracy và weighted F1 trên hai nhiệm vụ: persona và
+next_best_action.
+• Bước 5: chọn mô hình có weighted F1 trung bình cao nhất làm model_best để tích
+hợp vào AI chat service.
+1.4. Vai trò của AI Service trong project
+Trong project đã tích hợp, AI Service không hoạt động độc lập mà nằm trong
+ai_chat_service, liên kết với frontend, behavior_service, dữ liệu giỏ hàng và Knowledge
+Graph. Khi khách hàng tìm kiếm hoặc thêm sản phẩm vào giỏ, hệ thống có thể gọi AI để
+suy luận hành vi hiện tại, từ đó hiển thị gợi ý sản phẩm hoặc khuyến mãi phù hợp.
+II. SINH TẬP DỮ LIỆU
+2.1. Code sinh tập dữ liệu
+from __future__ import annotations
+import csv
+import random
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
+ACTIONS = [
+"search",
+"view",
+"click",
+"add_to_cart",
+"wishlist",
+"coupon_view",
+"checkout",
+"purchase",
+]
+CATEGORIES = [
+"Sách",
+"Dụng cụ học tập",
+"Đồ chơi",
+"Gói quà",
+"Ba lô",
+"Bình nước",
+"Đồ điện tử học tập",
+"Mỹ thuật",
+"Đồ trang trí bàn học",
+"Đồ lưu niệm",
+]
+PERSONAS = ["new_explorer", "category_browser", "deal_hunter", "loyal_member",
+"high_intent_buyer"]
+NEXT_ACTIONS = [
+"recommend_entry_products",
+"push_coupon",
+"bundle_related_products",
+"upsell_membership",
+"reengage_catalog",
+]
+PRICE_SENSITIVITY = ["low", "medium", "high"]
+@dataclass
+class PersonaRule:
+persona: str
+action_weights: dict[str, float]
+price_range: tuple[int, int]
+price_sensitivity: str
+next_best_action: str
+RULES: dict[str, PersonaRule] = {
+"new_explorer": PersonaRule(
+persona="new_explorer",
+action_weights={"search": 0.28, "view": 0.24, "click": 0.16,
+"add_to_cart": 0.08, "wishlist": 0.1, "coupon_view": 0.06, "checkout": 0.04,
+"purchase": 0.04},
+price_range=(35000, 120000),
+price_sensitivity="high",
+next_best_action="recommend_entry_products",
+),
+"category_browser": PersonaRule(
+persona="category_browser",
+action_weights={"search": 0.18, "view": 0.26, "click": 0.18,
+"add_to_cart": 0.08, "wishlist": 0.12, "coupon_view": 0.05, "checkout": 0.06,
+"purchase": 0.07},
+price_range=(50000, 180000),
+price_sensitivity="medium",
+next_best_action="reengage_catalog",
+),
+"deal_hunter": PersonaRule(
+persona="deal_hunter",
+action_weights={"search": 0.2, "view": 0.18, "click": 0.12,
+"add_to_cart": 0.1, "wishlist": 0.09, "coupon_view": 0.2, "checkout": 0.07,
+"purchase": 0.04},
+price_range=(25000, 110000),
+price_sensitivity="high",
+next_best_action="push_coupon",
+),
+"loyal_member": PersonaRule(
+persona="loyal_member",
+action_weights={"search": 0.08, "view": 0.16, "click": 0.14,
+"add_to_cart": 0.16, "wishlist": 0.08, "coupon_view": 0.06, "checkout": 0.16,
+"purchase": 0.16},
+price_range=(120000, 320000),
+price_sensitivity="low",
+next_best_action="upsell_membership",
+),
+"high_intent_buyer": PersonaRule(
+persona="high_intent_buyer",
+action_weights={"search": 0.1, "view": 0.18, "click": 0.14,
+"add_to_cart": 0.2, "wishlist": 0.08, "coupon_view": 0.05, "checkout": 0.14,
+"purchase": 0.11},
+price_range=(90000, 260000),
+price_sensitivity="medium",
+next_best_action="bundle_related_products",
+),
+}
+def weighted_choice(rng: random.Random, weights: dict[str, float]) -> str:
+actions = list(weights.keys())
+probs = list(weights.values())
+return rng.choices(actions, weights=probs, k=1)[0]
+def build_dataset(out_path: Path, user_count: int = 500, seed: int = 42) ->
+dict[str, int]:
+rng = random.Random(seed)
+start = datetime(2026, 1, 1, 8, 0, 0)
+rows: list[dict[str, object]] = []
+persona_counts: defaultdict[str, int] = defaultdict(int)
+persona_distribution = [
+("new_explorer", 0.2),
+("category_browser", 0.24),
+("deal_hunter", 0.2),
+("loyal_member", 0.16),
+("high_intent_buyer", 0.2),
+]
+persona_labels = [name for name, _ in persona_distribution]
+persona_weights = [weight for _, weight in persona_distribution]
+for user_id in range(1, user_count + 1):
+persona = rng.choices(persona_labels, weights=persona_weights, k=1)[0]
+persona_counts[persona] += 1
+rule = RULES[persona]
+base_category = rng.choice(CATEGORIES)
+sequence_length = rng.randint(18, 42)
+event_time = start + timedelta(hours=rng.randint(0, 24 * 45))
+session_index = 1
+purchase_count = 0
+for step in range(sequence_length):
+action = weighted_choice(rng, rule.action_weights)
+if action in {"checkout", "purchase"} and step < 4:
+action = rng.choice(["search", "view", "click"])
+if action == "purchase":
+purchase_count += 1
+if action == "purchase" and purchase_count > 3:
+action = rng.choice(["view", "add_to_cart", "checkout"])
+category_name = base_category if rng.random() < 0.65 else
+rng.choice(CATEGORIES)
+price = rng.randint(*rule.price_range)
+quantity = 1 if action != "purchase" else rng.randint(1, 2)
+if action == "coupon_view":
+query = rng.choice(["voucher", "sale", "coupon học tập", "khuyến
+mãi"])
+elif action == "search":
+query = rng.choice([
+f"{category_name.lower()} giá tốt",
+f"{category_name.lower()} cho học sinh",
+f"mua {category_name.lower()} online",
+f"{category_name.lower()} dưới {price // 1000}k",
+])
+else:
+query = ""
+rows.append(
+{
+"user_id": user_id,
+"session_id": f"S{user_id:03d}-{session_index:02d}",
+"step": step + 1,
+"timestamp": event_time.isoformat(),
+"product_id": rng.randint(1000, 1300),
+"category_name": category_name,
+"action": action,
+"price": price,
+"quantity": quantity,
+"query": query,
+"persona_label": persona,
+"next_best_action": rule.next_best_action,
+"price_sensitivity": rule.price_sensitivity,
+}
+)
+event_time += timedelta(minutes=rng.randint(2, 45))
+if rng.random() < 0.12:
+session_index += 1
+event_time += timedelta(hours=rng.randint(4, 36))
+out_path.parent.mkdir(parents=True, exist_ok=True)
+with out_path.open("w", newline="", encoding="utf-8") as f:
+writer = csv.DictWriter(
+f,
+fieldnames=[
+"user_id",
+"session_id",
+"step",
+"timestamp",
+"product_id",
+"category_name",
+"action",
+"price",
+"quantity",
+"query",
+"persona_label",
+"next_best_action",
+"price_sensitivity",
+],
+)
+writer.writeheader()
+writer.writerows(rows)
+return dict(sorted(persona_counts.items()))
+if __name__ == "__main__":
+output = Path(__file__).resolve().parents[1] / "ai_chat_service" / "data" /
+"data_user500.csv"
+stats = build_dataset(output)
+print(f"Wrote {output}")
+print(stats)
+2.2. Tập dữ liệu được sinh ra
+III. CODE TRAIN MODEL
+3.1. Code và giải thích
+from __future__ import annotations
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import pandas as pd
+import torch
+torch.backends.mkldnn.enabled = False
+torch.set_num_threads(1)
+from sklearn.metrics import accuracy_score, classification_report,
+confusion_matrix, f1_score
+from sklearn.model_selection import train_test_split
+from torch import nn
+from torch.nn.utils.rnn import pad_sequence, pack_padded_sequence
+from torch.utils.data import DataLoader, Dataset
+Khai báo nhãn và ánh xạ ID:
+ACTIONS = ["search", "view", "click", "add_to_cart", "wishlist", "coupon_view",
+"checkout", "purchase"]
+PERSONAS = ["new_explorer", "category_browser", "deal_hunter", "loyal_member",
+"high_intent_buyer"]
+NEXT_ACTIONS = ["recommend_entry_products", "push_coupon",
+"bundle_related_products", "upsell_membership", "reengage_catalog"]
+ACTION_TO_ID = {name: idx + 1 for idx, name in enumerate(ACTIONS)}
+PERSONA_TO_ID = {name: idx for idx, name in enumerate(PERSONAS)}
+NBA_TO_ID = {name: idx for idx, name in enumerate(NEXT_ACTIONS)}
+DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+• ACTIONS là 8 hành vi người dùng trong e-commerce.
+• PERSONAS là nhãn phân loại nhóm người dùng.
+• NEXT_ACTIONS là nhãn dự đoán hành động gợi ý tiếp theo.
+• Các dictionary như ACTION_TO_ID dùng để đổi dữ liệu text thành số, vì mô hình
+học máy không làm việc trực tiếp với chuỗi text.
+• DEVICE chọn chạy trên GPU nếu có, nếu không thì chạy CPU.
+Dataset cho chuỗi hành vi:
+class BehaviorSequenceDataset(Dataset):
+def __init__(self, sequences: list[dict]): self.sequences = sequences
+def __len__(self) -> int: return len(self.sequences)
+def __getitem__(self, idx: int):
+row = self.sequences[idx]
+return (torch.tensor(row['sequence'], dtype=torch.long),
+len(row['sequence']), torch.tensor(row['persona_id'], dtype=torch.long),
+torch.tensor(row['nba_id'], dtype=torch.long))
+• Đây là lớp biến dữ liệu thô thành định dạng PyTorch có thể train
+• Mỗi phần tử trả về gồm:
+o sequence: chuỗi hành vi của user
+o len(sequence): độ dài chuỗi
+o persona_id: nhãn persona
+o nba_id: nhãn next best action
+➔ Lớp này biến mỗi user thành một mẫu học cho mô hình
+Hàm collate_batch():
+def collate_batch(batch):
+sequences, lengths, persona_ids, nba_ids = zip(*batch)
+padded = pad_sequence(sequences, batch_first=True, padding_value=0)
+return padded, torch.tensor(lengths, dtype=torch.long),
+torch.stack(persona_ids), torch.stack(nba_ids)
+• Vì mỗi user có số hành vi khác nhau, nên không thể xếp chồng trực tiếp thành ma
+trận đều nhau.
+• Hàm này:
+o Gom các mẫu thành Batch
+o Dùng pad_sequence để thêm số 0 vào cuối chuỗi ngắn hơn
+o Trả về:
+▪ Ma trận sequence đã padding
+▪ Độ dài thật của từng chuỗi
+▪ Nhãn persona
+▪ Nhãn next action
+➔ Đây là bước rất quan trọng khi train RNN/LSTM với dữ liệu chuỗi không đều
+Lớp mô hình SequenceClassifier:
+class SequenceClassifier(nn.Module):
+def __init__(self, cell_type: str, vocab_size: int, emb_dim: int = 24,
+hidden_dim: int = 32):
+super().__init__()
+self.cell_type = cell_type
+self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
+bidirectional = cell_type == 'bilstm'
+if cell_type == 'rnn':
+self.encoder = nn.RNN(emb_dim, hidden_dim, batch_first=True,
+nonlinearity='tanh')
+else:
+self.encoder = nn.LSTM(emb_dim, hidden_dim, batch_first=True,
+bidirectional=bidirectional)
+out_dim = hidden_dim * (2 if bidirectional else 1)
+self.dropout = nn.Dropout(0.2)
+self.persona_head = nn.Linear(out_dim, len(PERSONAS))
+self.nba_head = nn.Linear(out_dim, len(NEXT_ACTIONS))
+• Đầu tiên class này sẽ đổi các action như search, view, click thành vector đặc trưng,
+padding_idx = 0 nghĩa là giá trị padding sẽ không mang ý nghĩa hành vi thực.
+• Tiếp theo chọn loại mạng
+• Sau đó phân loại persona và dự đoán next best action
+Hàm forward():
+def forward(self, sequences: torch.Tensor, lengths: torch.Tensor):
+embedded = self.embedding(sequences)
+packed = pack_padded_sequence(embedded, lengths.cpu(), batch_first=True,
+enforce_sorted=False)
+_, hidden = self.encoder(packed)
+if isinstance(hidden, tuple): hidden = hidden[0]
+features = torch.cat([hidden[-2], hidden[-1]], dim=1) if self.cell_type
+== 'bilstm' else hidden[-1]
+features = self.dropout(features)
+return self.persona_head(features), self.nba_head(features)
+• embedding(sequence): đổi ID thành vector
+• pack_padded_sequence(): bỏ qua phần padding để mô hình chỉ học trên dữ liệu
+thật
+• self.encoder(packed): đưa chuỗi vào RNN/LSTM/biLSTM
+• Với biLSTM, phải ghép hidden state của chiều xuôi và chiều ngược,
+• dropout giúp giảm overfitting
+• Cuối cùng trả về 2 đầu ra:
+o logits cho persona
+o logits cho next action
+@dataclass
+class RunMetrics:
+model_name: str
+persona_accuracy: float
+persona_f1: float
+next_action_accuracy: float
+next_action_f1: float
+score: float
+epochs: int
+train_loss_history: list[float]
+valid_loss_history: list[float]
+persona_report: dict
+next_action_report: dict
+persona_confusion_matrix: list[list[int]]
+next_action_confusion_matrix: list[list[int]]
+Hàm build_sequences():
+def build_sequences(csv_path: Path) -> list[dict]:
+df = pd.read_csv(csv_path).sort_values(['user_id', 'timestamp',
+'step']).reset_index(drop=True)
+return [{
+'user_id': int(user_id),
+'sequence': [ACTION_TO_ID.get(action, 0) for action in
+group['action'].tolist()],
+'persona_id': PERSONA_TO_ID[group['persona_label'].iloc[-1]],
+'nba_id': NBA_TO_ID[group['next_best_action'].iloc[-1]],
+} for user_id, group in df.groupby('user_id')]
+• Đọc file data_user500.csv
+• Sắp xếp theo user_id, timestamp, step để chuỗi hành vi đúng thứ tự thời gian
+• Gom dữ liệu theo từng user
+• Với mỗi user:
+o Tạo chuỗi action ID
+o Lấy nhãn persona
+o Lấy nhãn next best action
+➔ Biến dữ liệu sự kiện rời rạc thành chuỗi hành vi hoàn chỉnh của từng user
+Hàm evaluate():
+def evaluate(model: nn.Module, loader: DataLoader):
+model.eval(); loss_fn = nn.CrossEntropyLoss(); losses=[]; pt=[]; pp=[];
+nt=[]; npred=[]
+with torch.no_grad():
+for sequences, lengths, persona_ids, nba_ids in loader:
+sequences, lengths, persona_ids, nba_ids = sequences.to(DEVICE),
+lengths.to(DEVICE), persona_ids.to(DEVICE), nba_ids.to(DEVICE)
+persona_logits, nba_logits = model(sequences, lengths)
+loss = loss_fn(persona_logits, persona_ids) + loss_fn(nba_logits,
+nba_ids)
+losses.append(loss.item())
+pp.extend(torch.argmax(persona_logits, dim=1).cpu().tolist())
+npred.extend(torch.argmax(nba_logits, dim=1).cpu().tolist())
+pt.extend(persona_ids.cpu().tolist())
+nt.extend(nba_ids.cpu().tolist())
+return {'loss': sum(losses)/max(1,len(losses)), 'persona_true': pt,
+'persona_pred': pp, 'nba_true': nt, 'nba_pred': npred}
+• Chuyển model sang chế độ đánh giá model.eval()
+• Không tính gradient: torch.no_grad()
+• Tính:
+o Loss validation
+o Nhãn thật/ nhãn dự đoán cho persona
+o Nhãn thật/ nhãn dự đoán cho next action
+• Kết quả trả về là một dict chứa:
+o Loss
+o Persona_true, persona_pred
+o Nba_true, nba_pred
+• Hàm này dùng cả trong lúc train và sau khi train xong
+Hàm train_model()
+def train_model(model_name: str, train_data: list[dict], valid_data: list[dict],
+output_dir: Path) -> tuple[nn.Module, RunMetrics]:
+model = SequenceClassifier(model_name,
+vocab_size=len(ACTION_TO_ID)+1).to(DEVICE)
+train_loader = DataLoader(BehaviorSequenceDataset(train_data), batch_size=32,
+shuffle=True, collate_fn=collate_batch)
+valid_loader = DataLoader(BehaviorSequenceDataset(valid_data), batch_size=32,
+shuffle=False, collate_fn=collate_batch)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.003)
+loss_fn = nn.CrossEntropyLoss()
+train_hist=[]; valid_hist=[]; best_state=None; best_valid=float('inf');
+epochs=8
+for _ in range(epochs):
+model.train(); batch_losses=[]
+for sequences, lengths, persona_ids, nba_ids in train_loader:
+sequences, lengths, persona_ids, nba_ids = sequences.to(DEVICE),
+lengths.to(DEVICE), persona_ids.to(DEVICE), nba_ids.to(DEVICE)
+optimizer.zero_grad()
+persona_logits, nba_logits = model(sequences, lengths)
+loss = loss_fn(persona_logits, persona_ids) + loss_fn(nba_logits,
+nba_ids)
+loss.backward(); optimizer.step(); batch_losses.append(loss.item())
+train_loss = sum(batch_losses)/max(1,len(batch_losses)); valid =
+evaluate(model, valid_loader)
+train_hist.append(train_loss); valid_hist.append(valid['loss'])
+if valid['loss'] < best_valid:
+best_valid = valid['loss']; best_state = {k:v.detach().cpu() for k,v
+in model.state_dict().items()}
+model.load_state_dict(best_state)
+valid = evaluate(model, valid_loader)
+persona_acc = accuracy_score(valid['persona_true'], valid['persona_pred'])
+persona_f1 = f1_score(valid['persona_true'], valid['persona_pred'],
+average='weighted')
+nba_acc = accuracy_score(valid['nba_true'], valid['nba_pred'])
+nba_f1 = f1_score(valid['nba_true'], valid['nba_pred'], average='weighted')
+score = (persona_f1 + nba_f1)/2
+metrics = RunMetrics(model_name, round(float(persona_acc),4),
+round(float(persona_f1),4), round(float(nba_acc),4), round(float(nba_f1),4),
+round(float(score),4), epochs,
+[round(float(x),6) for x in train_hist], [round(float(x),6) for x in
+valid_hist],
+classification_report(valid['persona_true'], valid['persona_pred'],
+target_names=PERSONAS, output_dict=True, zero_division=0),
+classification_report(valid['nba_true'], valid['nba_pred'],
+target_names=NEXT_ACTIONS, output_dict=True, zero_division=0),
+confusion_matrix(valid['persona_true'], valid['persona_pred'],
+labels=list(range(len(PERSONAS)))).tolist(),
+confusion_matrix(valid['nba_true'], valid['nba_pred'],
+labels=list(range(len(NEXT_ACTIONS)))).tolist())
+fig=plt.figure(figsize=(8,4.8));
+plt.plot(metrics.train_loss_history,label='train_loss');
+plt.plot(metrics.valid_loss_history,label='valid_loss'); plt.xlabel('Epoch');
+plt.ylabel('Loss'); plt.title(f'{model_name.upper()} training curve');
+plt.legend(); fig.tight_layout();
+fig.savefig(output_dir/f'{model_name}_loss_curve.png',dpi=180); plt.close(fig)
+return model, metrics
+• Khởi tạo model và data loader:
+o Tạo 1 model tương ứng với rnn, lstm hoặc bilstm
+o Chuẩn bị dữ liệu train/validation theo batch
+o Dùng optimizer Adam
+o Dùng CrossEntropyLoss cho bài toán phân loại
+• Vòng lặp huấn luyện:
+o Train trong 8 epoch
+o Với mỗi batch:
+▪ Truyền dữ liệu qua model
+▪ Tính 2 loss:
+• Loss phân loại persona
+• Loss dự đoán next action
+▪ Cộng 2 loss lại
+▪ Lan truyền ngược
+▪ Cập nhật trọng số
+• Theo dõi train loss và valid loss:
+o Sau mỗi epoch:
+▪ Tính loss trung bình trên tập train
+▪ Chạy evaluate trên tập validation
+o Lưu lại lịch sử loss để vẽ biểu đồ sau này
+• Lưu best model theo validation loss:
+o Nếu epoch hiện tại có validation loss tốt hơn trước đó thì lưu lại trọng số
+o Đây là cách tránh việc lấy nhầm epoch cuối nếu epoch cuối bị giảm chất
+lượng
+• Tính chỉ số cuối cùng:
+o Sau khi load lại best_state, model được đánh giá lần cuối trên validation set
+o Tính:
+▪ Accuracy và F1 cho persona
+▪ Accuracy và F1 cho next action
+o score là trung bình của 2 weighted F1, dùng để chọn model tốt nhất
+• Tạo báo cáo chi tiết
+• Vẽ loss curve
+Hàm main(): Đây là hàm điều phối toàn bộ pipeline
+def main():
+repo_root = Path(__file__).resolve().parents[1]
+csv_path = repo_root/'ai_chat_service'/'data'/'data_user500.csv'
+models_dir = repo_root/'ai_chat_service'/'models'; reports_dir =
+repo_root/'ai_chat_service'/'reports'
+models_dir.mkdir(parents=True, exist_ok=True);
+reports_dir.mkdir(parents=True, exist_ok=True)
+sequences = build_sequences(csv_path)
+train_data, valid_data = train_test_split(sequences, test_size=0.2,
+random_state=42, stratify=[x['persona_id'] for x in sequences])
+all_metrics=[]; best_model=None; best_metrics=None
+for model_name in ['rnn','lstm','bilstm']:
+print(f'Training {model_name}...', flush=True)
+model, metrics = train_model(model_name, train_data, valid_data,
+reports_dir)
+all_metrics.append(metrics)
+torch.save({'state_dict': model.state_dict(), 'model_name': model_name},
+models_dir/f'{model_name}_sequence_model.pt')
+if best_metrics is None or metrics.score > best_metrics.score:
+best_metrics = metrics; best_model = model
+torch.save({'state_dict': best_model.state_dict(), 'model_name':
+best_metrics.model_name, 'actions': ACTIONS, 'personas': PERSONAS,
+'next_actions': NEXT_ACTIONS}, models_dir/'model_best.pt')
+(models_dir/'model_best_meta.json').write_text(json.dumps({'best_model':
+best_metrics.model_name, 'actions': ACTIONS, 'personas': PERSONAS,
+'next_actions': NEXT_ACTIONS, 'device': str(DEVICE), 'train_size':
+len(train_data), 'valid_size': len(valid_data)}, ensure_ascii=False, indent=2),
+encoding='utf-8')
+summary = {'results':[asdict(m) for m in all_metrics], 'best_model':
+best_metrics.model_name, 'selection_reason': f"Chọn
+{best_metrics.model_name.upper()} vì weighted F1 trung bình cao nhất
+({best_metrics.score:.4f})."}
+(reports_dir/'sequence_model_report.json').write_text(json.dumps(summary,
+ensure_ascii=False, indent=2), encoding='utf-8')
+ranking=sorted(all_metrics,key=lambda x:x.score, reverse=True)
+fig=plt.figure(figsize=(8,4.8)); x=[m.model_name.upper() for m in ranking];
+y=[m.score for m in ranking]; plt.bar(x,y); plt.ylim(0,1.0); plt.ylabel('Weighted
+F1 average'); plt.title('Model comparison: RNN vs LSTM vs biLSTM');
+for idx,val in enumerate(y): plt.text(idx,val+0.02,f'{val:.3f}',ha='center')
+fig.tight_layout(); fig.savefig(reports_dir/'model_comparison.png',dpi=180);
+plt.close(fig)
+print(json.dumps(summary, ensure_ascii=False, indent=2))
+if __name__ == '__main__':
+main()
+• Xác định đường dẫn
+• Đọc dữ liệu và chia train/valid
+• Train 3 mô hình
+• Lưu 3 model_best
+• Lưu metadata
+• Lưu báo cáo tổng hợp
+• Vẽ biểu đồ so sánh 3 model
+• In summary ra terminal
+➔ Kết thúc pipeline
+3.2. Biểu đồ so sánh
+• RNN loss curve:
+• LSTM loss curve:
+• biLSTM loss curve:
+• So sánh:
+3.3. Bảng tổng hợp kết quả
+IV. KNOWLEDGE BASE
+4.1. KB text
+gồm có: tất cả các file trong phần kb_docs của ai_chat_service
+4.2. KB graph
+là ảnh cấu trúc rag chụp trong neo4j
+V. XÂY DỰNG RAG VÀ CHAT DỰA TRÊN KB_GRAPH
+Hệ thống Chatbot/RAG được thiết kế theo kiến trúc hybrid, kết hợp giữa cơ sở dữ liệu
+vector (Tf-Idf) để tra cứu thông tin chính sách dạng văn bản, và Knowledge Graph
+(Neo4j) để trích xuất ngữ cảnh liên kết phức tạp phân tích lịch sử, xu hướng và độ liên
+quan của sản phẩm.
+5.1. Tìm kiếm văn bản bằng Vector (KBStore)
+Hệ thống sử dụng TF-IDF và Cosine Similarity để tìm kiếm các đoạn văn bản (chunks) từ
+các tài liệu Markdown. Lớp `KBStore` sẽ đọc thư mục `kb_docs/`, chia nhỏ văn bản,
+vector hóa và trả về điểm số tương đồng cho câu hỏi của User.
+Trích dẫn từ `kb_store.py`:
+def search(self, query: str, top_k: int = 3) -> list[KBHit]:
+self.ensure_ready()
+# Biến đổi câu hỏi thành vector
+q_vector = self.vectorizer.transform([query])
+# Tính toán độ tương đồng Cosine
+similarities = cosine_similarity(q_vector, self.matrix).flatten()
+order = np.argsort(-similarities)[:top_k]
+hits: list[KBHit] = []
+for idx in order:
+if idx < len(self.docs):
+doc = self.docs[int(idx)]
+hits.append(KBHit(title=doc["title"], content=doc["content"],
+score=float(similarities[idx])))
+return hits
+5.2. Knowledge Graph Context (Graph KBStore)
+Khi người dùng chat, hệ thống không chỉ tìm text mà còn truy vấn vào **Knowledge
+Graph** để kéo về ngữ cảnh đồ thị cụ thể (Graph Context). Dữ liệu này trả về danh mục
+họ quan tâm, sản phẩm gần đây, cũng như các đề xuất dựa trên luật đồ thị nhúng
+`BOUGHT_TOGETHER`, `PREFERS_BRAND`, hay `SIMILAR_TO`.
+Trích dẫn từ `graph_store.py`:
+def get_context(self, customer_id: int, question: str, top_k: int = 5) ->
+dict[str, Any]:
+driver = self._connect()
+query_text = " ".join((question or "").lower().split())
+with driver.session() as session:
+# Truy xuất các danh mục người dùng quan tâm mạnh trên Graph
+preferred_categories = [
+record["name"] for record in session.run(
+"""
+MATCH (:User {id: $customer_id})-[r:INTERESTED_IN]-
+>(c:Category)
+RETURN c.name AS name ORDER BY r.weight DESC LIMIT 5
+""",
+customer_id=customer_id,
+)
+]
+# Khai thác sự tương đồng giữa các người dùng (Collaborative
+filtering trên graph)
+similar_user_products = [
+record["product_id"] for record in session.run(
+"""
+MATCH (:User {id: $customer_id})-[:SIMILAR_TO]->(:User)-
+[:PURCHASED|ADDED_TO_CART|FAVORITED]->(p:Product)
+RETURN DISTINCT p.id AS product_id LIMIT $top_k
+""",
+customer_id=customer_id, top_k=top_k,
+)
+]
+# Tương tự cho queries khác: bought_together, trending_products,
+active_promotions...
+return {
+"preferred_categories": preferred_categories,
+"similar_user_product_ids": similar_user_products,
+# ...
+}
+5.3. Tích hợp vào luồng tư vấn
+Tại trung tâm điều phối Chatbot (advisor.py), hàm answer() sẽ gọi API để truy vấn lịch sử
+gần đây, lấy kb_hits (RAG text context) và graph_context (Graph context). Dữ liệu từ
+graph được đưa vào để chấm điểm từng sản phẩm (_score_products) và tạo câu trả lời
+động (dynamic context) để hiển thị mã giảm giá, giỏ hàng, xu hướng cá nhân.
+Trích dẫn từ `advisor.py`:
+def answer(self, customer_id: int, question: str, user_name: str = "Khách
+hàng") -> dict[str, Any]:
+# Tải dữ liệu toàn cảnh của người dùng từ các vi dịch vụ
+snapshot = self.services.get_user_snapshot(customer_id)
+# Đồng bộ Neo4j Node dựa trên hành động mới nhất trong snapshot nhanh
+self.graph.sync_user_knowledge_graph(customer_id, snapshot)
+# Lấy context từ Vector Database và Graph Database
+kb_hits = self.kb.search(question, top_k=4)
+graph_context = self.graph.get_context(customer_id, question, top_k=6)
+# ... logic phân loại mục đích hiển thị (availability_query,
+product_recommendation, ...)
+# Xếp hạng sản phẩm có tính toán thêm điểm tín hiệu đồ thị (Graph Score)
+top_products = self._score_products(
+products, categories, snapshot, question, graph_context=graph_context
+)[:3]
+# Trả về kết quả JSON tích hợp context RAG và Graph
+return {
+"answer": "...", # text được sinh ra từ quy tắc (có kèm
+dynamic_context giỏ hàng, ưu đãi)
+"top_products": [item["product"] for item in top_products],
+"kb_hits": [hit.__dict__ for hit in kb_hits],
+"graph_context": graph_context,
+"behavior": behavior.__dict__
+}
+VI. TRIỂN KHAI VÀ TÍCH HỢP TRONG HỆ E-COMMERCE
+AI Chat Service được triển khai theo mô hình Microservices, tách biệt hoàn toàn nhưng
+được kết nối theo thời gian thực tới các dịch vụ lõi như product_service, order_service,
+marketing_service.. Hệ e-commerce sử dụng FastAPI làm backend cho chat và có sự kiện
+khởi chạy đồng bộ hóa dữ liệu tập trung.
+6.1. Quá trình khởi động AI và Graph Mapping
+Khi microservice AI Chat Service khởi động, hệ thống sẽ trigger hàm startup(). Hàm này
+sẽ gọi Data Fetcher đi tới tất cả các microservices để kéo cấu trúc catalog (sản phẩm, loại,
+hãng, marketing campaigns..), lưu vào trong Knowledge Graph để làm dữ liệu nền tảng
+cho đồ thị tri thức chung.
+Trích dẫn từ `main.py`:
+@app.on_event("startup")
+def startup() -> None:
+# Build models behavior và index RAG local vector
+advisor.behavior_model.ensure_ready()
+advisor.sequence_behavior_model.ensure_ready()
+advisor.kb.ensure_ready()
+# Thiết lập Neo4j constraints
+advisor.graph.ensure_ready()
+# Kéo dữ liệu từ Product và Marketing Database để sync vào Graph Entities
+advisor.graph.sync_catalog()
+advisor.graph.sync_marketing()
+# Triển khai các thuật toán link-prediction / recommendation thuần đồ thị
+advisor.graph.sync_inferred_knowledge()
+6.2. Tích hợp API Chat vào User Flow e-commerce
+Microservice ai_chat_service cung cấp API chuẩn REST, yêu cầu bắt buộc đăng nhập
+(Auth middleware bằng JWT/Dependency get_current_user). Request từ Frontend sẽ rẽ
+qua API Gateway đi tới endpoint /chat/ask. Kết quả trả về JSON giúp frontend show giao
+diện bot, đồng thời đính kèm slider product gợi ý hiển thị bên trong chat widget.
+Trích dẫn từ `main.py`:
+from auth import get_current_user
+class ChatRequest(BaseModel):
+question: str
+@app.post("/chat/ask")
+def ask_chat(body: ChatRequest, user: dict = Depends(get_current_user)) -> dict:
+_metrics["chat_requests"] += 1
+# Pipeline gửi UID + Query vào Advisor engine.
+# Advisor sẽ gọi cross-service RPC (qua REST DataFetcher) để thiết lập luồng
+RAG và Graph trước khi sinh chat.
+return advisor.answer(
+customer_id=user["user_id"],
+question=body.question,
+user_name=user.get("name", "Khách hàng")
+)
+Kiến trúc liên kết vi dịch vụ này đảm bảo Service AI có khả năng Scale độc lập, đồng
+thời Data Fetcher HTTP Client cung cấp Snapshot realtime từ giỏ hàng, lịch sử không bị
+cached lâu, giúp Bot luôn nhận diện chính xác "dynamic context".
+6.3. Tích hợp vào Search (Tìm kiếm) – Gián tiếp (Read-only)
+AI không can thiệp trực tiếp vào thanh tìm kiếm nhưng đọc toàn bộ lịch sử search từ
+analytics_service để cá nhân hóa gợi ý sản phẩm. Cụ thể, ServiceClient trong
+data_fetcher.py gọi HTTP tới analytics_service để lấy danh sách từ khóa tìm kiếm gần
+nhất của user, sau đó advisor.py dùng chúng để cộng điểm cho sản phẩm khớp.
+Trích dẫn từ `data_fetcher.py`:
+def get_user_snapshot(self, customer_id: int) -> dict:
+# Lấy lịch sử tìm kiếm từ analytics_service
+searches = self._get_json(f"{self.analytics_url}/search-history?limit=200",
+[])
+# Lọc chỉ lấy tìm kiếm của đúng customer này
+searches = [item for item in searches if item.get("customer_id") ==
+customer_id]
+recent_search_terms: list[str] = []
+for item in searches:
+query = _normalize_search_text(item.get("query") or
+item.get("search_term") or "")
+if query:
+recent_search_terms.append(query)
+# Đếm query liên quan khuyến mãi để điều chỉnh behavior
+if any(kw in query for kw in ["sale", "giảm", "voucher", "coupon",
+"khuyến mãi"]):
+promo_keywords += 1
+return {
+...
+"recent_search_terms": recent_search_terms[-10:], # 10 từ khóa mới nhất
+"feature_values": {
+"search_count": len(searches), # Tần suất search → feature
+cho AI model
+"promo_keyword_count": promo_keywords, # Từ khóa sale → nhận diện
+deal_hunter
+}
+}
+Trích dẫn từ `advisor.py` — Scoring sản phẩm dựa trên search history:
+def _score_products(self, products, categories, snapshot, question, ...):
+recent_search_terms = snapshot.get("recent_search_terms", [])
+for product in candidates:
+product_text = _product_text(product) # title + description +
+category...
+# +2.2 điểm nếu sản phẩm khớp với từ khóa đã tìm gần đây
+for term in recent_search_terms[-5:]:
+term_tokens = [t for t in _searchable_text(term).split() if len(t) >=
+3]
+if term_tokens and any(token in product_text for token in
+term_tokens):
+score += 2.2
+reasons.append(f"khớp tìm kiếm gần đây: {term}")
+break
+Ngoài ra, lịch sử search được đồng bộ vào Neo4j dưới dạng quan hệ `(User)-
+[:SEARCHED]->(Query)`, liên kết với `Session` và `TimeSlot`, giúp graph nhận diện
+pattern tìm kiếm theo giờ/ngày:
+# graph_store.py — Sync lịch sử tìm kiếm vào Knowledge Graph
+for s in snapshot.get("searches", []):
+query = s.get("query") or s.get("search_term")
+if query:
+normalized_query = " ".join(query.lower().split())
+session.run("""
+MERGE (u:User {id: $customer_id})
+MERGE (q:Query {text: $query})
+MERGE (u)-[s:SEARCHED]->(q)
+SET s.timestamp = $timestamp
+""", customer_id=customer_id, query=normalized_query,
+timestamp=timestamp_value)
+# Đính kèm vào Session và TimeSlot để phân tích theo khung giờ
+self._touch_activity_context(session, customer_id, timestamp_value,
+query_text=normalized_query)
+6.4. Tích hợp vào giỏ hàng – Đọc realtime, ảnh hưởng nội dung chat
+AI đọc giỏ hàng realtime từ order_service và dùng dữ liệu này để:
+1. Điều chỉnh lời khuyên chat (nhắc checkout, hiển thị ưu đãi phù hợp đơn hiện tại).
+2. Tính feature_values.cart_item_count làm đầu vào cho AI behavior model.
+3. Đồng bộ vào Neo4j với quan hệ OWNS_CART → CONTAINS → Product và
+ADDED_TO_CART để tính tín hiệu `BOUGHT_TOGETHER`.
+Trích dẫn từ `data_fetcher.py`:
+def get_user_snapshot(self, customer_id: int) -> dict:
+# Lấy tóm tắt giỏ hàng (số lượng, tổng tiền)
+cart_summary = self._get_json(f"{self.order_url}/cart/{customer_id}/summary",
+{"item_count": 0})
+# Lấy chi tiết giỏ hàng (danh sách sản phẩm, số lượng)
+cart = self._get_json(f"{self.order_url}/cart/{customer_id}", {"items": []})
+feature_values = {
+"cart_item_count": int(cart_summary.get("item_count", 0) or 0), # →
+Feature cho AI model
+...
+}
+Trích dẫn từ `advisor.py` — Dùng giỏ hàng để tạo lời khuyên động:
+def _format_purchase_answer(self, user_name, product, category_name, behavior,
+snapshot):
+cart_summary = snapshot.get("cart_summary", {})
+# Nếu behavior model dự đoán user là "deal_hunter" → nhắc ưu đãi
+if behavior.next_best_action == "push_coupon":
+dynamic = self._dynamic_context(snapshot) # Lấy coupon, tier phù hợp
+next_action = f"Bạn nên kiểm tra ưu đãi trước khi chốt đơn:\n{dynamic}"
+# Nếu giỏ hàng đang có hàng → nhắc checkout luôn
+elif cart_summary.get("item_count"):
+next_action = (
+f"Giỏ hàng hiện có {cart_summary.get('item_count')} sản phẩm, "
+"bạn có thể vào checkout để chốt cùng đơn."
+)
+def _dynamic_context(self, snapshot):
+cart_summary = snapshot.get("cart_summary", {})
+if cart_summary.get("item_count"):
+lines.append(
+f"- Giỏ hàng hiện có {cart_summary.get('item_count')} sản phẩm, "
+f"tạm tính {int(cart_summary.get('total_price', 0)):,}đ."
+)
+Trích dẫn từ `graph_store.py` — Đồng bộ giỏ hàng vào Neo4j:
+# Sync Cart & Cart Items → dùng để tính BOUGHT_TOGETHER sau
+cart_id = cart.get("id")
+if cart_id:
+session.run("""
+MERGE (u:User {id: $customer_id})
+MERGE (c:Cart {id: $cart_id})
+MERGE (u)-[:OWNS_CART]->(c)
+""", customer_id=customer_id, cart_id=cart_id)
+for item in cart.get("items", []):
+product_id = item.get("product_id")
+if product_id:
+session.run("""
+MERGE (c:Cart {id: $cart_id})
+MERGE (p:Product {id: $product_id})
+MERGE (c)-[rel:CONTAINS]->(p)
+SET rel.quantity = $quantity
+MERGE (u:User {id: $customer_id})
+MERGE (u)-[ar:ADDED_TO_CART]->(p)
+SET ar.quantity = $quantity
+""", cart_id=cart_id, product_id=product_id,
+customer_id=customer_id, quantity=item.get("quantity", 1))
+6.5. Tích hợp vào hành vi người dùng
+Đây là tầng AI hoạt động cốt lõi của hệ thống, với **2 mô hình song song** để phân tích
+hành vi:
+Mô hình 1: BehaviorModel (DNN – NumPy từ scratch)
+Dùng 10 features thu thập từ snapshot (số lần search, view, wishlist,…) để dự đoán 4 kết
+quả:
+Output Mô tả Ví dụ
+Persona Nhóm khách hàng deal_hunter,
+loyal_member,
+high_intent_buyer
+Price_sentivity Độ nhạy cảm giá High, medium, low
+Next_best_action Hành động tốt nhất tiếp
+theo
+Push_coupon,
+bundle_related_products
+Purchase_intent Xác suất mua (0 – 1) 0.82
+Trích dẫn từ `behavior_model.py`:
+FEATURES = [
+"search_count", # Số lần tìm kiếm
+"view_count", # Số lần xem sản phẩm
+"wishlist_count", # Số sản phẩm yêu thích
+"cart_item_count", # Số SP trong giỏ
+"order_count", # Tổng đơn hàng
+"avg_order_value", # Giá trị đơn trung bình
+"total_spent", # Tổng chi tiêu
+"promo_keyword_count",# Tần suất tìm từ khóa sale
+"membership_points", # Điểm thành viên
+"preferred_genre_count" # Số danh mục quan tâm
+]
+# Kiến trúc: 4 mô hình Deep Neural Net riêng biệt
+persona_model = DeepClassifier(len(FEATURES), len(PERSONAS),
+hidden_dims=(64, 32, 16)) # 3 hidden layers
+price_model = DeepClassifier(len(FEATURES), len(PRICE_LEVELS),
+hidden_dims=(48, 24, 12))
+action_model = DeepClassifier(len(FEATURES), len(ACTIONS),
+hidden_dims=(64, 32, 16))
+intent_model = DeepRegressor(len(FEATURES),
+hidden_dims=(64, 32, 16)) # Regression 0→1
+Mô hình 2: SequenceBehaviorModel
+Phân tích chuỗi hành động của user (search → view → add_to_cart → checkout...) để
+hiểu ngữ cảnh động. Model tốt nhất (`model_best.pt`) được nạp tự động, có thể là RNN,
+LSTM, hoặc BiLSTM.
+Trích dẫn từ `sequence_behavior_model.py`:
+ACTIONS = ["search", "view", "click", "add_to_cart", "wishlist",
+"coupon_view", "checkout", "purchase"]
+class SequenceClassifier(nn.Module):
+def __init__(self, cell_type: str, vocab_size: int, emb_dim=24,
+hidden_dim=32):
+self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
+bidirectional = cell_type == "bilstm"
+if cell_type == "rnn":
+self.encoder = nn.RNN(emb_dim, hidden_dim, batch_first=True)
+else:
+# LSTM hoặc BiLSTM
+self.encoder = nn.LSTM(emb_dim, hidden_dim, batch_first=True,
+bidirectional=bidirectional)
+out_dim = hidden_dim * (2 if bidirectional else 1)
+self.persona_head = nn.Linear(out_dim, len(PERSONAS)) # Phân loại
+persona
+self.nba_head = nn.Linear(out_dim, len(NEXT_ACTIONS)) # Next best
+action
+def build_sequence(self, snapshot) -> list[str]:
+# Tái tạo chuỗi hành vi từ toàn bộ snapshot
+actions = []
+for item in searches[-6:]:
+actions.append("search")
+if any(kw in query for kw in ["sale", "voucher", "coupon", "giảm"]):
+actions.append("coupon_view") # Phát hiện tìm kiếm sale
+for _ in recent_views[-6:]:
+actions.extend(["view", "click"])
+for _ in wishlist[-4:]:
+actions.append("wishlist")
+for item in cart_items[-4:]:
+actions.extend(["add_to_cart"] * max(1, min(item.get("quantity",1), 2)))
+if cart_items:
+actions.append("checkout")
+for _ in orders[-4:]:
+actions.extend(["checkout", "purchase"])
+return actions[-32:] # Lấy 32 bước gần nhất
+Tích hợp 2 mô hình vào pipeline chat
+Cả hai mô hình chạy song song, hệ thống ưu tiên kết quả từ sequence model nếu có
+model đã được train:
+Trích dẫn từ `advisor.py`:
+def answer(self, customer_id: int, question: str, user_name: str = "Khách hàng"):
+snapshot = self.services.get_user_snapshot(customer_id)
+# Chạy cả 2 mô hình
+base_behavior =
+self.behavior_model.predict(snapshot.get("feature_values", {}))
+sequence_behavior = self.sequence_behavior_model.predict(snapshot)
+# Ưu tiên Sequence Model (LSTM/BiLSTM) nếu đã train, fallback về Deep NN
+behavior = sequence_behavior if sequence_behavior.used_sequence_model else
+base_behavior
+# Kết quả behavior ảnh hưởng trực tiếp tới scoring và câu trả lời
+# persona="deal_hunter" → push_coupon trong câu trả lời
+# purchase_intent >= 0.65 → ưu tiên sản phẩm còn hàng
+# price_sensitivity="high" → ưu tiên sản phẩm < 150,000đ
+if behavior.price_sensitivity == "high" and price <= 150000:
+score += 1.8
+if behavior.purchase_intent >= 0.65 and stock > 0:
+score += 1.2
+
+VII. GIAO DIỆN
+(đây là 1 số các giao diện liên quan đến ai-service từ lúc tương tác với người dùng đến sau khi tương tác, dữ liệu thu thập ở đâu và thay đổi như thế nào?)
+7.1. Giao diện chat bot
+7.2. Giao diện giỏ hàng
+7.3. Giao diện tìm kiếm
+7.4. KB Graph sau khi user tương tác

@@ -7,7 +7,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = 'django-insecure-product-service-key'
 DEBUG = True
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['*', 'product_service', 'product_service:8002', 'localhost', '127.0.0.1']
+USE_X_FORWARDED_HOST = True
+SECURE_PROXY_SSL_HEADER = None
 
 # CLEAN DB: Tắt toàn bộ các app rác của Django
 INSTALLED_APPS = [
@@ -24,9 +26,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.security.SecurityMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 CORS_ALLOW_ALL_ORIGINS = True

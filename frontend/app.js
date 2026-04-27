@@ -700,6 +700,7 @@ function renderLogin() {
       if (isStaff) res = await Auth.loginStaff({ username: fd.get('username'), password: fd.get('password') });
       else res = await Auth.loginCustomer({ email: fd.get('email'), password: fd.get('password') });
       localStorage.setItem('token', res.access_token);
+      if (res.refresh) localStorage.setItem('refresh_token', res.refresh);
       saveUser({ user_id: res.user_id, name: res.name, user_type: res.user_type, role: res.role });
       toast(`Xin chào, ${res.name}!`, 'success');
       updateNavUI(); refreshCartBadge();
