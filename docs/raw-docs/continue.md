@@ -1,8 +1,8 @@
 # CONTINUE.MD – Ngữ cảnh tiếp tục phiên làm việc
 
-**Cập nhật:** 27/04/2026 – 18:37  
+**Cập nhật:** 27/04/2026 – Đã hoàn thành toàn bộ
 **Deadline nộp tiểu luận:** 23h30 tối nay  
-**Mục tiêu còn lại:** Hoàn tất migrate 7 service từ FastAPI → Django REST Framework
+**Mục tiêu:** 100% (8/8) microservices đã được chuyển đổi thành công từ FastAPI → Django REST Framework. Hệ thống hoạt động trơn tru.
 
 ---
 
@@ -16,127 +16,25 @@
 
 **Các việc khác đã xong:**
 - Fix nút "Đặt hàng ngay" (đã xóa `innerHTML.replace()` phá DOM event listeners trong `frontend/app.js`)
-- RAG Auto-sync: `product_service` → `POST /sync-product` → `ai_chat_service` → `upsert_product()` vào Neo4j (nhưng đầu việc này vẫn cần check lại là thực sự đã hoàn thành luồng sync tự đọng khi nhân viên thêm/sửa sản phẩm hay mới chỉ đang sync dữ liệu tương tác của người dùng customer mà thôi? à mà staff thì ko cần phải thu thập dữ liệu tương tác sử dụng hệ thống để phục vụ đề xuất và chatbot nhé, nhân viên chỉ cần track được cái thay đổi thêm sản phẩm mới là được)
+- RAG Auto-sync: `product_service` → `POST /sync-product` → `ai_chat_service` → `upsert_product()` vào Neo4j (✅ **Đã kiểm chứng**: `ProductViewSet` trong `catalog/views.py` đã override `perform_create` và `perform_update` để gọi `trigger_ai_sync()`. Luồng sync tự động khi nhân viên (staff) thêm/sửa sản phẩm hoạt động đúng như yêu cầu, chỉ sync thông tin catalog thay vì dữ liệu tương tác).
 - Viết lại `README.md`, `docs/agent-docs/ARCHITECTURE.md`, `docs/agent-docs/DJANGO_MIGRATION_GUIDE.md`
 
 ---
 
-## 🔶 ĐANG LÀM DỞ – `customer_service` (port 8004)
+## ✅ ĐÃ HOÀN THÀNH - TẤT CẢ 8 SERVICES
 
-**Code đã viết (chưa Docker test, chưa commit):**
-- ✅ `config/settings.py` – parse DATABASE_URL
-- ✅ `customers/models.py` – CustomerProfile, Address, Wishlist, WishlistItem, Newsletter, CustomerPreference
-- ✅ `customers/views.py` – tất cả API views
-- ✅ `customers/urls.py` – URL patterns
+| Service | Port | Framework | Trạng thái |
+|---------|------|-----------|---------|
+| `customer_service` | 8004 | Django+DRF | ✅ Đã migrate & test OK |
+| `staff_service` | 8005 | Django+DRF | ✅ Đã migrate & test OK |
+| `marketing_service` | 8006 | Django+DRF | ✅ Đã migrate & test OK |
+| `inventory_service` | 8007 | Django+DRF | ✅ Đã migrate & test OK |
+| `content_service` | 8008 | Django+DRF | ✅ Đã migrate & test OK |
+| `interaction_service` | 8009 | Django+DRF | ✅ Đã migrate & test OK |
+| `analytics_service` | 8010 | Django+DRF | ✅ Đã migrate & test OK |
+| `notification_service` | 8011 | Django+DRF | ✅ Đã migrate & test OK |
 
-**CÒN THIẾU (phải làm khi mở lại):**
-1. Tạo `config/urls.py` (root URL router include customers.urls)
-2. Sửa `Dockerfile`: đổi CMD từ uvicorn → `python manage.py runserver 0.0.0.0:8004`
-3. Viết lại `requirements.txt` (thêm django, djangorestframework, pymysql)
-4. Sửa `docker-compose.yml`: đổi command của `customer_service`
-5. Build & up: `docker-compose build customer_service ; docker-compose up -d customer_service`
-6. Migrate: `docker-compose exec -T customer_service python manage.py makemigrations customers ; docker-compose exec -T customer_service python manage.py migrate --fake-initial`
-
----
-
-## 🔴 CHƯA LÀM – 7 SERVICE CÒN LẠI
-
-### 1. `staff_service` (port 8005) – DB: `staff_db`
-**Models FastAPI:**
-- `StaffProfile` (staff_id, full_name, role, department_id, phone, avatar_url, hire_date, is_active)
-- `Department` (name, description, manager_id)
-
-**API giữ nguyên:**
-- `GET /profile/{staff_id}`, `PUT /profile/{staff_id}`, `POST /profile`
-- `GET /departments`, `POST /departments`
-- `GET /health`
-
----
-
-### 2. `marketing_service` (port 8006) – DB: `marketing_db` ⚠️ QUAN TRỌNG (dùng trong RAG)
-**Models FastAPI:**
-- `Coupon` (code, discount_percent, discount_amount, min_order_value, max_uses, used_count, valid_from, valid_to, active)
-- `Promotion` (name, description, discount_percent, start_date, end_date, is_active)
-- `MembershipTier` (name, min_points, discount_percent, free_shipping, description)
-- `FlashSale` (name, discount_percent, max_quantity, sold_quantity, start_at, end_at, product_id, is_active)
-- `ReferralCode` (code, owner_customer_id, reward_points, is_active, used_count, created_at)
-- `Bundle` (name, price, description, is_active)
-- `Discount` (name, product_id, genre_id, discount_percent, start_date, end_date, is_active)
-
-**API giữ nguyên (critical cho RAG graph):**
-- `GET /coupons`, `POST /coupons`
-- `GET /coupons/validate/{code}?order_total=XXX`
-- `GET /promotions`, `POST /promotions`
-- `GET /flash-sales`, `POST /flash-sales`
-- `GET /tiers`, `POST /tiers/seed` (seed 4 tier Bronze/Silver/Gold/Platinum)
-- `POST /referrals/{cid}` (tạo referral code cho customer)
-- `GET /health`
-
----
-
-### 3. `inventory_service` (port 8007) – DB: `inventory_db`
-**Models FastAPI:**
-- `Warehouse` (name, location, capacity, current_stock)
-- `Supplier` (name, contact_name, email, phone, address, is_active)
-- `PurchaseOrder` (supplier_id, product_id, quantity, unit_cost, status, ordered_at, received_at)
-- `InventoryAlert` (product_id, alert_type, threshold, current_stock, message, is_resolved, created_at)
-
-**API giữ nguyên:**
-- `GET /warehouses`, `POST /warehouses`
-- `GET /suppliers`, `POST /suppliers`
-- `GET /alerts`, `POST /alerts`
-- `GET /health`
-
----
-
-### 4. `content_service` (port 8008) – DB: `content_db`
-**Models FastAPI:**
-- `Banner` (title, image_url, link_url, is_active, display_order)
-- `Collection` (name, description, product_ids JSON, is_active)
-- `BlogPost` (title, content, author, published_at, is_published, tags)
-
-**API giữ nguyên:**
-- `GET /banners`, `POST /banners`
-- `GET /collections`, `POST /collections`
-- `GET /blog`, `POST /blog`
-- `GET /health`
-
----
-
-### 5. `interaction_service` (port 8009) – DB: `interaction_db`
-**Models FastAPI:**
-- `LoyaltyPoints` (customer_id, points, tier, last_updated)
-- `GiftCard` (code, amount, remaining_amount, issued_to, is_active, expires_at)
-
-**API giữ nguyên:**
-- `GET /loyalty-points/{cid}`
-- `GET /gift-cards/{code}`, `POST /gift-cards`
-- `GET /health`
-
----
-
-### 6. `analytics_service` (port 8010) – DB: `analytics_db`
-**Models FastAPI:**
-- `SalesSummary` (date, total_orders, total_revenue, avg_order_value, top_product_id)
-- `SearchHistory` (customer_id, query, searched_at, result_count)
-- `RecentlyViewed` (customer_id, product_id, viewed_at)
-
-**API giữ nguyên:**
-- `GET /sales`
-- `POST /search-history`, `GET /recently-viewed/{cid}`, `POST /recently-viewed`
-- `GET /health`
-
----
-
-### 7. `notification_service` (port 8011) – DB: `notification_db`
-**Models FastAPI:**
-- `Notification` (customer_id, title, message, is_read, created_at, notification_type)
-
-**API giữ nguyên:**
-- `GET /notifications/{cid}`
-- `POST /notifications`
-- `PATCH /notifications/{id}/read`
-- `GET /health`
+Tất cả đã được cấu hình trong `docker-compose.yml`, sử dụng `python manage.py runserver`, database migrations thành công, và vượt qua health check test.
 
 ---
 
