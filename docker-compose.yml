@@ -1,0 +1,332 @@
+name: shopx
+services:
+
+  # ──────────────── DATABASE ──────────────────────────────
+  mysql:
+    image: mysql:8.0
+    hostname: mysql
+    container_name: shopx-mysql
+    restart: "no"
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-123456}
+      MYSQL_ROOT_HOST: "%"
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+    volumes:
+      - shopx_mysql_data:/var/lib/mysql
+      - ./mysql-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p$$DB_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ──────────────── MESSAGE BROKER ────────────────
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: shopx-rabbitmq
+    restart: "no"
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-guest}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  neo4j:
+    image: neo4j:5.22
+    hostname: neo4j
+    container_name: shopx-neo4j
+    restart: "no"
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-learnmart_graph_password}
+      N4J_USER: ${NEO4J_USER:-neo4j}
+      N4J_PASS: ${NEO4J_PASSWORD:-learnmart_graph_password}
+    volumes:
+      - shopx_neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u $$N4J_USER -p $$N4J_PASS 'RETURN 1' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ──────────────── API GATEWAY ────────────────────
+  api_gateway:
+    build: ./api_gateway
+    container_name: shopx-gateway
+    restart: "no"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./api_gateway:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  # ──────────────── BACKEND SERVICES ─────────────────
+  auth_service:
+    build: ./backend-services/auth_service
+    container_name: shopx-auth_service
+    restart: "no"
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./backend-services/auth_service:/app
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8001 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/auth_db
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  product_service:
+    build: ./backend-services/product_service
+    container_name: shopx-product_service
+    restart: "no"
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./backend-services/product_service:/app
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8002 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/product_db
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  order_service:
+    build: ./backend-services/order_service
+    container_name: shopx-order_service
+    restart: "no"
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./backend-services/order_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8003 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/order_db
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  customer_service:
+    build: ./backend-services/customer_service
+    container_name: shopx-customer_service
+    restart: "no"
+    ports:
+      - "8004:8004"
+    volumes:
+      - ./backend-services/customer_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8004 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/customer_db
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  staff_service:
+    build: ./backend-services/staff_service
+    container_name: shopx-staff_service
+    restart: "no"
+    ports:
+      - "8005:8005"
+    volumes:
+      - ./backend-services/staff_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8005 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/staff_db
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  marketing_service:
+    build: ./backend-services/marketing_service
+    container_name: shopx-marketing_service
+    restart: "no"
+    ports:
+      - "8006:8006"
+    volumes:
+      - ./backend-services/marketing_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8006 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/marketing_db
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  inventory_service:
+    build: ./backend-services/inventory_service
+    container_name: shopx-inventory_service
+    restart: "no"
+    ports:
+      - "8007:8007"
+    volumes:
+      - ./backend-services/inventory_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8007 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/inventory_db
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  content_service:
+    build: ./backend-services/content_service
+    container_name: shopx-content_service
+    restart: "no"
+    ports:
+      - "8008:8008"
+    volumes:
+      - ./backend-services/content_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8008 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/content_db
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  interaction_service:
+    build: ./backend-services/interaction_service
+    container_name: shopx-interaction_service
+    restart: "no"
+    ports:
+      - "8009:8009"
+    volumes:
+      - ./backend-services/interaction_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8009 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/interaction_db
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  analytics_service:
+    build: ./backend-services/analytics_service
+    container_name: shopx-analytics_service
+    restart: "no"
+    ports:
+      - "8010:8010"
+    volumes:
+      - ./backend-services/analytics_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8010 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/analytics_db
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  notification_service:
+    build: ./backend-services/notification_service
+    container_name: shopx-notification_service
+    restart: "no"
+    ports:
+      - "8011:8011"
+    volumes:
+      - ./backend-services/notification_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8011 --reload
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  behavior_service:
+    build: ./backend-services/behavior_service
+    container_name: shopx-behavior_service
+    restart: "no"
+    ports:
+      - "8013:8013"
+    volumes:
+      - ./backend-services/behavior_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8013 --reload
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/behavior_db
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-learnmart_graph_password}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+
+  ai_chat_service:
+    build: ./backend-services/ai_chat_service
+    container_name: shopx-ai-chat_service
+    restart: "no"
+    ports:
+      - "8012:8012"
+    volumes:
+      - ./backend-services/ai_chat_service:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8012 --reload
+    environment:
+      AUTH_SERVICE_URL: http://auth_service:8001
+      PRODUCT_SERVICE_URL: http://product_service:8002
+      ORDER_SERVICE_URL: http://order_service:8003
+      CUSTOMER_SERVICE_URL: http://customer_service:8004
+      MARKETING_SERVICE_URL: http://marketing_service:8006
+      ANALYTICS_SERVICE_URL: http://analytics_service:8010
+      BEHAVIOR_SERVICE_URL: http://behavior_service:8013
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-learnmart_graph_password}
+    depends_on:
+      auth_service:
+        condition: service_started
+      product_service:
+        condition: service_started
+      order_service:
+        condition: service_started
+      customer_service:
+        condition: service_started
+      marketing_service:
+        condition: service_started
+      analytics_service:
+        condition: service_started
+      behavior_service:
+        condition: service_started
+      neo4j:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    container_name: shopx-frontend
+    restart: "no"
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./frontend:/app
+    depends_on:
+      api_gateway:
+        condition: service_started
+      ai_chat_service:
+        condition: service_started
+
+volumes:
+  shopx_mysql_data:
+    name: shopx_mysql_data
+  shopx_neo4j_data:
+    name: shopx_neo4j_data

@@ -1,0 +1,296 @@
+name: shopx-project
+services:
+  # ============================================================
+  # MySQL 8.0 Database (dÃƒÂ¹ng chung 1 instance, nhiÃ¡Â»Âu databases)
+  # External port: 3307
+  # Internal port: 3306
+  # root password: 3355
+  # ============================================================
+  shopx-mysql:
+    image: mysql:8.0
+    container_name: shopx-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: shopx_main
+    ports:
+      - "3307:3306"
+    volumes:
+      - shopx-mysql:/var/lib/mysql
+      - ./init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    networks:
+      - shopx-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p3355"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # ============================================================
+  # Neo4j Graph Database (used by AI Service)
+  # ============================================================
+  neo4j:
+    image: neo4j:5
+    container_name: shopx-neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER}/${NEO4J_PASSWORD}
+    networks:
+      - shopx-network
+    volumes:
+      - neo4j-data:/data
+
+  # ============================================================
+  # API Gateway
+  # Port: 8080 (external) -> 8000 (internal)
+  # ============================================================
+  api-gateway:
+    build: ./api_gateway
+    container_name: shopx-gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8000"
+    environment:
+      - SECRET_KEY=shopx-gateway-secret-key-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_gateway
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SIGNING_KEY=shopx-jwt-shared-secret-2024
+      # Service URLs
+      - IDENTITY_SERVICE_URL=http://identity-service:8000
+      - PRODUCT_SERVICE_URL=http://product-service:8000
+      - CART_SERVICE_URL=http://cart-service:8000
+      - ORDER_SERVICE_URL=http://order-service:8000
+      - PAYMENT_SERVICE_URL=http://payment-service:8000
+      - ANALYTICS_SERVICE_URL=http://analytics-service:8000
+      - RECOMMENDATION_SERVICE_URL=http://recommendation-service:8000
+      - AI_SERVICE_URL=http://ai-service:8000
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+    networks:
+      - shopx-network
+
+  # ============================================================
+  # Identity Service
+  # Port: 8001 | DB: shopx_identity
+  # ============================================================
+  identity-service:
+    build: ./system-services/identity-service
+    container_name: shopx-identity
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - SECRET_KEY=shopx-identity-secret-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_identity
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - JWT_SIGNING_KEY=shopx-jwt-shared-secret-2024
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+    networks:
+      - shopx-network
+
+  # ============================================================
+  # Product Service
+  # Port: 8002 | DB: shopx_product
+  # ============================================================
+  product-service:
+    build: ./system-services/product-service
+    container_name: shopx-product
+    restart: unless-stopped
+    ports:
+      - "8002:8000"
+    environment:
+      - SECRET_KEY=shopx-product-secret-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_product
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+    networks:
+      - shopx-network
+
+  # ============================================================
+  # Cart Service
+  # Port: 8003 | DB: shopx_cart
+  # ============================================================
+  cart-service:
+    build: ./system-services/cart-service
+    container_name: shopx-cart
+    restart: unless-stopped
+    ports:
+      - "8003:8000"
+    environment:
+      - SECRET_KEY=shopx-cart-secret-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_cart
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - PRODUCT_SERVICE_URL=http://product-service:8000
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+    networks:
+      - shopx-network
+
+  # ============================================================
+  # Order Service
+  # Port: 8004 | DB: shopx_order
+  # ============================================================
+  order-service:
+    build: ./system-services/order-service
+    container_name: shopx-order
+    restart: unless-stopped
+    ports:
+      - "8004:8000"
+    environment:
+      - SECRET_KEY=shopx-order-secret-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_order
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - CART_SERVICE_URL=http://cart-service:8000
+      - PRODUCT_SERVICE_URL=http://product-service:8000
+      - PAYMENT_SERVICE_URL=http://payment-service:8000
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+    networks:
+      - shopx-network
+
+  # ============================================================
+  # Payment Service
+  # Port: 8005 | DB: shopx_payment
+  # ============================================================
+  payment-service:
+    build: ./system-services/payment-service
+    container_name: shopx-payment
+    restart: unless-stopped
+    ports:
+      - "8005:8000"
+    environment:
+      - SECRET_KEY=shopx-payment-secret-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_payment
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+    networks:
+      - shopx-network
+
+  # ============================================================
+  # Analytics Service
+  # Port: 8006 | DB: shopx_analytics
+  # ============================================================
+  analytics-service:
+    build: ./system-services/analytics-service
+    container_name: shopx-analytics
+    restart: unless-stopped
+    ports:
+      - "8006:8000"
+    environment:
+      - SECRET_KEY=shopx-analytics-secret-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_analytics
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+    networks:
+      - shopx-network
+
+  # ============================================================
+  # Recommendation Service
+  # Port: 8007 | DB: shopx_recommendation
+  # ============================================================
+  recommendation-service:
+    build: ./system-services/recommendation-service
+    container_name: shopx-recommendation
+    restart: unless-stopped
+    ports:
+      - "8007:8000"
+    environment:
+      - SECRET_KEY=shopx-recommendation-secret-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_recommendation
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - ANALYTICS_SERVICE_URL=http://analytics-service:8000
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+    networks:
+      - shopx-network
+
+  # ============================================================
+  # AI Service
+  # Port: 8008 | DB: shopx_behavior (shared with analytics) or shopx_ai
+  # ============================================================
+  ai-service:
+    build: ./system-services/ai-service
+    container_name: shopx-ai
+    restart: unless-stopped
+    ports:
+      - "8008:8000"
+    environment:
+      - SECRET_KEY=shopx-ai-secret-2024
+      - DEBUG=True
+      - DB_HOST=shopx-mysql
+      - DB_PORT=${DB_PORT}
+      - DB_NAME=shopx_behavior
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=${NEO4J_USER}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+    depends_on:
+      shopx-mysql:
+        condition: service_healthy
+      neo4j:
+        condition: service_started
+    networks:
+      - shopx-network
+
+volumes:
+  shopx-mysql:
+    name: shopx_mysql_data
+  neo4j-data:
+    name: shopx_neo4j_data
+
+networks:
+  shopx-network:
+    name: shopx-network
+    driver: bridge
+
