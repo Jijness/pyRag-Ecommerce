@@ -188,13 +188,13 @@ services:
         condition: service_healthy
 
   ai_service:
-    build: ./backend-services/ai_chat_service
+    build: ./backend-services/ai_service
     container_name: shopx-ai_service
     restart: "no"
     ports:
       - "8007:8007"
     volumes:
-      - ./backend-services/ai_chat_service:/app
+      - ./backend-services/ai_service:/app
     command: uvicorn config.asgi:application --host 0.0.0.0 --port 8007 --reload
     environment:
       DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/ai_db
@@ -206,6 +206,10 @@ services:
         condition: service_healthy
       neo4j:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 2G
 
   frontend:
     build: ./frontend

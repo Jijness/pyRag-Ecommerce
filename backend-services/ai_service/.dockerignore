@@ -1,0 +1,29 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.gitignore
+.dockerignore
+Dockerfile
+
+# Bỏ qua thư mục AI pipeline nặng
+ai_pipeline/
+
+# Bỏ qua các file sinh ra (model, plot) không cần nạp sẵn vào image
+media/plots/
+core_ai/*.joblib
