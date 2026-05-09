@@ -1,0 +1,48 @@
+Đây là Yêu cầu đánh giá chi tiết cho tiểu luận Version 2 của môn học: thiết kế kiến trúc phần mềm này.
+
+
+Dưới đây là các tiêu chí đánh giá báo cáo cho các chương, chứ không hẳn là cấu trúc mục lục.
+Tức là nếu có đủ các cái yếu tố này trong bài thì bài sẽ điểm cao hơn vì làm đầy dủ hơn.
+
+
+Chương 1 : TỪ MONOLITHIC ĐẾN MICROSERVICES VÀ DDD
+1. Có hình so sánh mono - micro
+2. bảng so sánh
+3. Các big tech sử dung Micro và quá trình phát triển của họ
+4. thiết kế micro  != mono (đoạn này chắc là các phần so sánh kĩ 2 phần)
+5. Studycase Healthcare (cụ thể nếu triển khai ví dụ này)
+5.1 Phân rã 
+5.2 Tạo service với Django (copy các ảnh)
+
+
+Chương 2 : PHÁT TRIỂN HỆ E-COMMERCE MICROSERVICE
+1. Phân tích yêu cầu (có vẻ là mô tả bằng text)
+2. Phân rã các service hình ( usecase, bảng, biểu đồ lớp) --> tức là đoạn này là chi tiết mỗi service thì có các ảnh usecase, ảnh thiết kế bảng dữ liệu, biểu đồ lớp thì phải.
+3. Thiết kế từng service - Biểu đồ lớp thiết kế
+4. Thể hiện service qua Django (Tạo service. đoạn này chắc là chụp các ảnh về các lệnh tạo từng cụm service, chưa phải ảnh tạo chi tiết các service triển khai như nào vì cái đáy là phần chương 3 4 mới chụp thì phải)
+5. Flow luồng hoạt động (sequenceDiagram, Activity Diagram), chắc là đoạn này từng service phải vẽ được các biểu đồ hoạt dộng tương ứng cho các usecase con của nó.
+6. Biểu đồ DataModel - Các DataTech sử dung - mô tả.
+
+
+CHƯƠNG 3: AI SERVICE 
+1. Mô tả yêu cầu - pipeline (Deeplearning, ecom,, RAG, Chat)
+2. Deeplearning (DL)
+ cụ thể gồm trình bày:
+ các mô hình sử dung (tối thiểu 3 loại mô hình)
+ copy code cấu trúc các mô hình - giải thích
+ Tập đata thử nghiệm mô hình (phải có tầm 2-3 tập dữ liệu để mô hình được tổng quan nhất có thể)
+ Kết quả so sánh các mô hình: biểu đồ so sánh và nhận xét chi tiết
+3. Deploy mô hình 
+4. RAG: trình bày lý thuyết, tích hợp chat + DL
+5. Tích hợp vào hệ thống ecom
+  bao gồm: Giao diện các mặt hang tư vấn (recommend) và giao diện chat
+
+CHƯƠNG 4: XÂY DỰNG HỆ THỐNG Ecom hoàn chỉnh tích hợp AI
+1. Mô tả kiến trúc với code toàn hệ thống
+2. Các công nghệ sử dung. (bài cũ đã có trình bày 1 số công nghệ áp dung vào thêm nhưng cụ thể thì tính sau)
+3 Triển khai
+4. Thể hiện kết quả // càng chi tiết càng tốt
+
+
+Phần cuối: tự đánh giá điểm:
+nhận xét mức điểm của mình, và viết chi tiết 10 trang word tự nhận xét và ghép vào tài liệu thi.

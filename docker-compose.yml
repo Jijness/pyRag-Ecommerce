@@ -79,18 +79,18 @@ services:
       rabbitmq:
         condition: service_healthy
 
-  # ──────────────── BACKEND SERVICES ─────────────────
-  auth_service:
-    build: ./backend-services/auth_service
-    container_name: shopx-auth_service
+  # ──────────────── BACKEND SERVICES (DDD 7 Services) ─────────────────
+  user_service:
+    build: ./backend-services/user_service
+    container_name: shopx-user_service
     restart: "no"
     ports:
       - "8001:8001"
     volumes:
-      - ./backend-services/auth_service:/app
+      - ./backend-services/user_service:/app
     command: uvicorn config.asgi:application --host 0.0.0.0 --port 8001 --reload
     environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/auth_db
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/user_db
       DB_PASSWORD: ${DB_PASSWORD:-123456}
     depends_on:
       mysql:
@@ -113,15 +113,32 @@ services:
       mysql:
         condition: service_healthy
 
+  cart_service:
+    build: ./backend-services/cart_service
+    container_name: shopx-cart_service
+    restart: "no"
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./backend-services/cart_service:/app
+    command: python manage.py runserver 0.0.0.0:8003
+    environment:
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/cart_db
+      DB_PASSWORD: ${DB_PASSWORD:-123456}
+      DB_HOST: mysql
+    depends_on:
+      mysql:
+        condition: service_healthy
+
   order_service:
     build: ./backend-services/order_service
     container_name: shopx-order_service
     restart: "no"
     ports:
-      - "8003:8003"
+      - "8004:8004"
     volumes:
       - ./backend-services/order_service:/app
-    command: python manage.py runserver 0.0.0.0:8003
+    command: python manage.py runserver 0.0.0.0:8004
     environment:
       DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/order_db
       DB_PASSWORD: ${DB_PASSWORD:-123456}
@@ -130,197 +147,63 @@ services:
       mysql:
         condition: service_healthy
 
-  customer_service:
-    build: ./backend-services/customer_service
-    container_name: shopx-customer_service
-    restart: "no"
-    ports:
-      - "8004:8004"
-    volumes:
-      - ./backend-services/customer_service:/app
-    command: python manage.py runserver 0.0.0.0:8004
-    environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/customer_db
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
-      DB_HOST: mysql
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-  staff_service:
-    build: ./backend-services/staff_service
-    container_name: shopx-staff_service
+  payment_service:
+    build: ./backend-services/payment_service
+    container_name: shopx-payment_service
     restart: "no"
     ports:
       - "8005:8005"
     volumes:
-      - ./backend-services/staff_service:/app
+      - ./backend-services/payment_service:/app
     command: python manage.py runserver 0.0.0.0:8005
     environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/staff_db
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/payment_db
       DB_PASSWORD: ${DB_PASSWORD:-123456}
       DB_HOST: mysql
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     depends_on:
       mysql:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
-  marketing_service:
-    build: ./backend-services/marketing_service
-    container_name: shopx-marketing_service
+  shipping_service:
+    build: ./backend-services/shipping_service
+    container_name: shopx-shipping_service
     restart: "no"
     ports:
       - "8006:8006"
     volumes:
-      - ./backend-services/marketing_service:/app
+      - ./backend-services/shipping_service:/app
     command: python manage.py runserver 0.0.0.0:8006
     environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/marketing_db
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/shipping_db
       DB_PASSWORD: ${DB_PASSWORD:-123456}
       DB_HOST: mysql
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-guest}:${RABBITMQ_PASS:-guest}@rabbitmq:5672/
     depends_on:
       mysql:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
-  inventory_service:
-    build: ./backend-services/inventory_service
-    container_name: shopx-inventory_service
+  ai_service:
+    build: ./backend-services/ai_chat_service
+    container_name: shopx-ai_service
     restart: "no"
     ports:
       - "8007:8007"
     volumes:
-      - ./backend-services/inventory_service:/app
-    command: python manage.py runserver 0.0.0.0:8007
-    environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/inventory_db
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
-      DB_HOST: mysql
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-  content_service:
-    build: ./backend-services/content_service
-    container_name: shopx-content_service
-    restart: "no"
-    ports:
-      - "8008:8008"
-    volumes:
-      - ./backend-services/content_service:/app
-    command: python manage.py runserver 0.0.0.0:8008
-    environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/content_db
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
-      DB_HOST: mysql
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-  interaction_service:
-    build: ./backend-services/interaction_service
-    container_name: shopx-interaction_service
-    restart: "no"
-    ports:
-      - "8009:8009"
-    volumes:
-      - ./backend-services/interaction_service:/app
-    command: python manage.py runserver 0.0.0.0:8009
-    environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/interaction_db
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
-      DB_HOST: mysql
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-  analytics_service:
-    build: ./backend-services/analytics_service
-    container_name: shopx-analytics_service
-    restart: "no"
-    ports:
-      - "8010:8010"
-    volumes:
-      - ./backend-services/analytics_service:/app
-    command: python manage.py runserver 0.0.0.0:8010
-    environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/analytics_db
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
-      DB_HOST: mysql
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-  notification_service:
-    build: ./backend-services/notification_service
-    container_name: shopx-notification_service
-    restart: "no"
-    ports:
-      - "8011:8011"
-    volumes:
-      - ./backend-services/notification_service:/app
-    command: python manage.py runserver 0.0.0.0:8011
-    environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/notification_db
-      DB_PASSWORD: ${DB_PASSWORD:-123456}
-      DB_HOST: mysql
-    depends_on:
-      mysql:
-        condition: service_healthy
-
-  behavior_service:
-    build: ./backend-services/behavior_service
-    container_name: shopx-behavior_service
-    restart: "no"
-    ports:
-      - "8013:8013"
-    volumes:
-      - ./backend-services/behavior_service:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8013 --reload
-    environment:
-      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/behavior_db
-      NEO4J_URI: bolt://neo4j:7687
-      NEO4J_USER: ${NEO4J_USER:-neo4j}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-learnmart_graph_password}
-    depends_on:
-      mysql:
-        condition: service_healthy
-      neo4j:
-        condition: service_healthy
-
-  ai_chat_service:
-    build: ./backend-services/ai_chat_service
-    container_name: shopx-ai-chat_service
-    restart: "no"
-    ports:
-      - "8012:8012"
-    volumes:
       - ./backend-services/ai_chat_service:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8012 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8007 --reload
     environment:
-      AUTH_SERVICE_URL: http://auth_service:8001
-      PRODUCT_SERVICE_URL: http://product_service:8002
-      ORDER_SERVICE_URL: http://order_service:8003
-      CUSTOMER_SERVICE_URL: http://customer_service:8004
-      MARKETING_SERVICE_URL: http://marketing_service:8006
-      ANALYTICS_SERVICE_URL: http://analytics_service:8010
-      BEHAVIOR_SERVICE_URL: http://behavior_service:8013
+      DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/ai_db
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: ${NEO4J_USER:-neo4j}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-learnmart_graph_password}
     depends_on:
-      auth_service:
-        condition: service_started
-      product_service:
-        condition: service_started
-      order_service:
-        condition: service_started
-      customer_service:
-        condition: service_started
-      marketing_service:
-        condition: service_started
-      analytics_service:
-        condition: service_started
-      behavior_service:
-        condition: service_started
+      mysql:
+        condition: service_healthy
       neo4j:
         condition: service_healthy
 
@@ -334,8 +217,6 @@ services:
       - ./frontend:/app
     depends_on:
       api_gateway:
-        condition: service_started
-      ai_chat_service:
         condition: service_started
 
 volumes:

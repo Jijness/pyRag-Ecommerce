@@ -7,6 +7,5 @@ def health(request):
 
 urlpatterns = [
     path('health', health),
-    path('cart/', include('cart.urls')),
     path('orders/', include('orders.urls')),
 ]

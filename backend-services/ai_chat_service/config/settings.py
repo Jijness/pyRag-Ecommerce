@@ -1,12 +1,9 @@
 import os
 from pathlib import Path
-import pymysql
-
-pymysql.install_as_MySQLdb()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-order-service-key-xxx'
+SECRET_KEY = 'django-insecure-ai-service-secret-key'
 
 DEBUG = True
 
@@ -20,10 +17,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'orders',
+    'corsheaders',
+    'django_prometheus',
+    'core_ai', # Ứng dụng chính chứa Neo4j, Logic Deep Learning, API
 ]
 
 MIDDLEWARE = [
+    'django_prometheus.middleware.PrometheusBeforeMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -31,6 +32,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django_prometheus.middleware.PrometheusAfterMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -52,30 +54,20 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'order_db',
+        'NAME': 'ai_db',
         'USER': 'root',
-        'PASSWORD': os.environ.get('DB_PASSWORD', '123456'),
-        'HOST': os.environ.get('DB_HOST', 'mysql'),
-        'PORT': '3306',
+        'PASSWORD': os.getenv('DB_PASSWORD', '123456'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': '3307' if os.getenv('DB_HOST') == 'localhost' else '3306',
     }
 }
 
-# Auto-parse DATABASE_URL if provided (Docker environment)
-_DATABASE_URL = os.environ.get('DATABASE_URL', '')
-if _DATABASE_URL:
-    import re
-    _m = re.match(r'mysql\+pymysql://([^:]+):([^@]+)@([^:/]+):?(\d+)?/(\w+)', _DATABASE_URL)
-    if _m:
-        DATABASES['default']['USER'] = _m.group(1)
-        DATABASES['default']['PASSWORD'] = _m.group(2)
-        DATABASES['default']['HOST'] = _m.group(3)
-        DATABASES['default']['PORT'] = _m.group(4) or '3306'
-        DATABASES['default']['NAME'] = _m.group(5)
-
+AUTH_PASSWORD_VALIDATORS = []
 
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
@@ -83,15 +75,14 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = 'static/'
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [],
-    'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.AllowAny',
-    ],
-    'UNAUTHENTICATED_USER': None,
-    'DEFAULT_RENDERER_CLASSES': (
-        'rest_framework.renderers.JSONRenderer',
-    )
-}
+CORS_ALLOW_ALL_ORIGINS = True
+
+# Thư mục chứa các file model trained (joblib)
+AI_MODELS_DIR = os.path.join(BASE_DIR, 'ai_models_data')
+os.makedirs(AI_MODELS_DIR, exist_ok=True)
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_URL = '/media/'
+os.makedirs(MEDIA_ROOT, exist_ok=True)
