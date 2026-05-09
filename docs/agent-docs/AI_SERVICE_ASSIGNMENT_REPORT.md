@@ -13,7 +13,7 @@ Tài liệu này map trực tiếp với yêu cầu trong file PDF bài nộp. F
 - `ai_pipeline/generate_user_behavior_data.py`
 
 Output:
-- `ai_chat_service/data/data_user500.csv`
+- `ai_service/data/data_user500.csv`
 
 8 behaviors trong dataset:
 1. `search`
@@ -46,16 +46,16 @@ Mỗi dòng gồm:
 - `ai_pipeline/train_sequence_models.py`
 
 Artifacts được tạo:
-- `ai_chat_service/models/rnn_sequence_model.pt`
-- `ai_chat_service/models/lstm_sequence_model.pt`
-- `ai_chat_service/models/bilstm_sequence_model.pt`
-- `ai_chat_service/models/model_best.pt`
-- `ai_chat_service/models/model_best_meta.json`
-- `ai_chat_service/reports/model_comparison.png`
-- `ai_chat_service/reports/rnn_loss_curve.png`
-- `ai_chat_service/reports/lstm_loss_curve.png`
-- `ai_chat_service/reports/bilstm_loss_curve.png`
-- `ai_chat_service/reports/sequence_model_report.json`
+- `ai_service/models/rnn_sequence_model.pt`
+- `ai_service/models/lstm_sequence_model.pt`
+- `ai_service/models/bilstm_sequence_model.pt`
+- `ai_service/models/model_best.pt`
+- `ai_service/models/model_best_meta.json`
+- `ai_service/reports/model_comparison.png`
+- `ai_service/reports/rnn_loss_curve.png`
+- `ai_service/reports/lstm_loss_curve.png`
+- `ai_service/reports/bilstm_loss_curve.png`
+- `ai_service/reports/sequence_model_report.json`
 
 Kết quả hiện tại trên synthetic dataset:
 - `RNN`: weighted F1 trung bình = `0.4834`
@@ -74,7 +74,7 @@ Lý do chọn:
 Project đã có sẵn hạ tầng `Neo4j` trong `docker-compose.yml`.
 
 Phần graph được tích hợp qua:
-- `ai_chat_service/graph_store.py`
+- `ai_service/graph_store.py`
 - `behavior_service/graph_sync.py`
 
 Các node / relation chính đang sync:
@@ -92,15 +92,15 @@ Các node / relation chính đang sync:
 ## 4. RAG + Chat
 
 Thành phần RAG/chat hiện có trong project:
-- `ai_chat_service/kb_store.py`: TF-IDF retrieval cho KB docs
-- `ai_chat_service/graph_store.py`: lấy context từ Neo4j graph
-- `ai_chat_service/advisor.py`: hợp nhất behavior + KB + graph để tạo answer
+- `ai_service/kb_store.py`: TF-IDF retrieval cho KB docs
+- `ai_service/graph_store.py`: lấy context từ Neo4j graph
+- `ai_service/advisor.py`: hợp nhất behavior + KB + graph để tạo answer
 - `frontend/assistant.js`: giao diện chat riêng, không dùng UI mặc định của ChatGPT
 
 ## 5. Tích hợp model_best vào hệ e-commerce
 
 Đã thêm file mới:
-- `ai_chat_service/sequence_behavior_model.py`
+- `ai_service/sequence_behavior_model.py`
 
 Logic tích hợp:
 - load `model_best.pt`
@@ -109,8 +109,8 @@ Logic tích hợp:
 - nếu không có model hoặc không đủ chuỗi thì fallback về behavior model cũ
 
 Các file đã sửa để tích hợp:
-- `ai_chat_service/advisor.py`
-- `ai_chat_service/main.py`
+- `ai_service/advisor.py`
+- `ai_service/main.py`
 - `frontend/api.js`
 - `frontend/app.js`
 

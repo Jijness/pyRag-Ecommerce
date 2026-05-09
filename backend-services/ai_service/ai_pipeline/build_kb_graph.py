@@ -15,7 +15,7 @@ def build_kb():
     else:
         # Nếu chạy trực tiếp trên Windows sẽ nối vào thư mục data
         repo_root = Path(__file__).resolve().parents[1]
-        csv_path = repo_root / 'ai_chat_service' / 'data' / 'data_user500.csv'
+        csv_path = repo_root / 'ai_service' / 'data' / 'data_user500.csv'
         URI_LOCAL = "bolt://localhost:7687"
         global URI
         URI = URI_LOCAL

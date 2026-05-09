@@ -271,10 +271,10 @@ ai_service/
 
 ## 9. Ghi Chú Migration
 
-- Source code chính: `backend-services/ai_chat_service/` + `backend-services/behavior_service/`
+- Source code chính: `backend-services/ai_service/` + `backend-services/behavior_service/`
 - Framework: **FastAPI → Django + DRF** (giữ nguyên business logic)
 - Di chuyển: `Wishlist`, `WishlistItem`, `CustomerPreference` từ `customer_service`
 - Di chuyển: `SearchHistory`, `RecentlyViewed`, `DailySalesSummary` từ `analytics_service`
 - Database mới: `ai_db` (merge từ `behavior_db` + `analytics_db`)
 - Neo4j: Giữ nguyên `shopx-neo4j`, chỉ cập nhật connection config
-- Rename folder: `ai_chat_service/` → `ai_service/`
+- Rename folder: `ai_service/` → `ai_service/`

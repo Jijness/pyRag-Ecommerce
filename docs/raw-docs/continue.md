@@ -16,7 +16,7 @@
 
 **Các việc khác đã xong:**
 - Fix nút "Đặt hàng ngay" (đã xóa `innerHTML.replace()` phá DOM event listeners trong `frontend/app.js`)
-- RAG Auto-sync: `product_service` → `POST /sync-product` → `ai_chat_service` → `upsert_product()` vào Neo4j (✅ **Đã kiểm chứng**: `ProductViewSet` trong `catalog/views.py` đã override `perform_create` và `perform_update` để gọi `trigger_ai_sync()`. Luồng sync tự động khi nhân viên (staff) thêm/sửa sản phẩm hoạt động đúng như yêu cầu, chỉ sync thông tin catalog thay vì dữ liệu tương tác).
+- RAG Auto-sync: `product_service` → `POST /sync-product` → `ai_service` → `upsert_product()` vào Neo4j (✅ **Đã kiểm chứng**: `ProductViewSet` trong `catalog/views.py` đã override `perform_create` và `perform_update` để gọi `trigger_ai_sync()`. Luồng sync tự động khi nhân viên (staff) thêm/sửa sản phẩm hoạt động đúng như yêu cầu, chỉ sync thông tin catalog thay vì dữ liệu tương tác).
 - Viết lại `README.md`, `docs/agent-docs/ARCHITECTURE.md`, `docs/agent-docs/DJANGO_MIGRATION_GUIDE.md`
 
 ---

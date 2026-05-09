@@ -15,7 +15,7 @@ Tài liệu này ghi lại quá trình chuyển đổi từ **FastAPI** sang **D
 | `staff_service`     | FastAPI     | FastAPI       | ⏳ Chưa migrate |
 | `marketing_service` | FastAPI     | FastAPI       | ⏳ Chưa migrate |
 | `inventory_service` | FastAPI     | FastAPI       | ⏳ Chưa migrate |
-| `ai_chat_service`   | FastAPI     | FastAPI       | 🔒 Giữ nguyên (AI pipeline) |
+| `ai_service`   | FastAPI     | FastAPI       | 🔒 Giữ nguyên (AI pipeline) |
 | `behavior_service`  | FastAPI     | FastAPI       | 🔒 Giữ nguyên (AI pipeline) |
 
 ---
@@ -106,7 +106,7 @@ def trigger_ai_sync(self, product):
         "brand_name": "ShopX",
         "description": product.description
     }
-    httpx.post("http://ai_chat_service:8012/sync-product", json=payload)
+    httpx.post("http://ai_service:8007/sync-product", json=payload)
 ```
 
 **AI Chat Service nhận tại:**

@@ -302,9 +302,9 @@ def main():
         models_dir = Path('/app/models')
         reports_dir = Path('/app/reports')
     else:
-        csv_path = repo_root / 'ai_chat_service' / 'data' / 'data_user500.csv'
-        models_dir = repo_root / 'ai_chat_service' / 'models'
-        reports_dir = repo_root / 'ai_chat_service' / 'reports'
+        csv_path = repo_root / 'ai_service' / 'data' / 'data_user500.csv'
+        models_dir = repo_root / 'ai_service' / 'models'
+        reports_dir = repo_root / 'ai_service' / 'reports'
     
     models_dir.mkdir(parents=True, exist_ok=True)
     reports_dir.mkdir(parents=True, exist_ok=True)

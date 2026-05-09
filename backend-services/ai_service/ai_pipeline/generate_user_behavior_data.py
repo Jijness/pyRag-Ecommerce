@@ -192,7 +192,7 @@ def build_dataset(out_path: Path, user_count: int = 500, seed: int = 42) -> dict
 
 
 if __name__ == "__main__":
-    output = Path(__file__).resolve().parents[1] / "ai_chat_service" / "data" / "data_user500.csv"
+    output = Path(__file__).resolve().parents[1] / "ai_service" / "data" / "data_user500.csv"
     stats = build_dataset(output)
     print(f"Wrote {output}")
     print(stats)

@@ -42,7 +42,7 @@ def startup() -> None:
 @app.get("/")
 def root() -> dict:
     return {
-        "service": "ai_chat_service",
+        "service": "ai_service",
         "version": "1.0.0",
         "capabilities": [
             "behavior-based recommendation",
@@ -56,7 +56,7 @@ def root() -> dict:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "ai_chat_service", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "ok", "service": "ai_service", "timestamp": datetime.utcnow().isoformat()}
 
 
 @app.get("/metrics")
