@@ -81,13 +81,13 @@ services:
 
   # ──────────────── BACKEND SERVICES (DDD 7 Services) ─────────────────
   user_service:
-    build: ./backend-services/user_service
+    build: ./backend-services/auth_service
     container_name: shopx-user_service
     restart: "no"
     ports:
       - "8001:8001"
     volumes:
-      - ./backend-services/user_service:/app
+      - ./backend-services/auth_service:/app
     command: uvicorn config.asgi:application --host 0.0.0.0 --port 8001 --reload
     environment:
       DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/user_db
@@ -195,7 +195,7 @@ services:
       - "8007:8007"
     volumes:
       - ./backend-services/ai_chat_service:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8007 --reload
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8007 --reload
     environment:
       DATABASE_URL: mysql+pymysql://root:${DB_PASSWORD:-123456}@mysql:3306/ai_db
       NEO4J_URI: bolt://neo4j:7687
