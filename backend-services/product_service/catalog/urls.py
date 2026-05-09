@@ -4,6 +4,8 @@ from . import views
 
 router = DefaultRouter(trailing_slash=False)
 router.register(r'categories', views.CategoryViewSet)
+router.register(r'brands', views.BrandViewSet)
+router.register(r'product-types', views.ProductTypeViewSet)
 router.register(r'products', views.ProductViewSet, basename='product')
 router.register(r'reviews', views.ReviewViewSet)
 router.register(r'ratings', views.RatingViewSet)

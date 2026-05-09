@@ -185,6 +185,9 @@ class DeepClassifierV2:
 
 class DeepRegressorV2(DeepClassifierV2):
     """Regressor variation"""
+    def __init__(self, input_dim: int, **kwargs):
+        super().__init__(input_dim=input_dim, output_dim=1, **kwargs)
+
     def _forward(self, x: np.ndarray, training: bool = False):
         activations = [x]
         pre_activations = []

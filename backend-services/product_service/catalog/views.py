@@ -8,12 +8,26 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from .models import Category, Product, Review, Rating
-from .serializers import CategorySerializer, ProductSerializer, ReviewSerializer, RatingSerializer
+from .models import Category, Brand, ProductType, Product, Review, Rating
+from .serializers import (
+    CategorySerializer, BrandSerializer, ProductTypeSerializer, 
+    ProductSerializer, ReviewSerializer, RatingSerializer
+)
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
+    permission_classes = [AllowAny]
+    lookup_field = 'id'
+
+class BrandViewSet(viewsets.ModelViewSet):
+    queryset = Brand.objects.all()
+    serializer_class = BrandSerializer
+    permission_classes = [AllowAny]
+
+class ProductTypeViewSet(viewsets.ModelViewSet):
+    queryset = ProductType.objects.all()
+    serializer_class = ProductTypeSerializer
     permission_classes = [AllowAny]
 
 class ReviewViewSet(viewsets.ModelViewSet):
@@ -25,8 +39,6 @@ class RatingViewSet(viewsets.ModelViewSet):
     queryset = Rating.objects.all()
     serializer_class = RatingSerializer
     permission_classes = [AllowAny]
-
-from django.db.models import Q
 
 class ProductViewSet(viewsets.ModelViewSet):
     serializer_class = ProductSerializer
@@ -55,41 +67,23 @@ class ProductViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
 
-    @action(detail=True, methods=['get'])
-    def reviews(self, request, pk=None):
-        product = self.get_object()
-        reviews = Review.objects.filter(product=product).order_by('-created_at')
-        serializer = ReviewSerializer(reviews, many=True)
-        return Response(serializer.data)
-
-    @action(detail=True, methods=['get'])
-    def ratings(self, request, pk=None):
-        product = self.get_object()
-        ratings = Rating.objects.filter(product=product).order_by('-created_at')
-        serializer = RatingSerializer(ratings, many=True)
-        return Response(serializer.data)
-
     def trigger_ai_sync(self, product):
         try:
-            # We call the new /sync-product endpoint in ai_chat_service
-            # We run it synchronously for simplicity in this version
             payload = {
                 "id": product.id,
                 "title": product.name,
                 "price": float(product.price),
                 "category_id": product.category_id,
                 "category_name": product.category.name if product.category else "Unknown",
-                "brand_name": "ShopX",
+                "brand_name": product.brand.name if product.brand else "Unknown",
                 "description": product.description
             }
             with httpx.Client(timeout=3.0) as client:
-                res = client.post("http://ai_chat_service:8012/sync-product", json=payload)
+                res = client.post("http://ai_service:8007/ai/sync-product", json=payload)
                 if res.status_code == 200:
                     logger.info(f"AI sync successful for product {product.id}")
-                else:
-                    logger.warning(f"AI sync failed: {res.status_code} {res.text}")
         except Exception as e:
-            logger.error(f"Error calling ai_chat_service sync: {e}")
+            logger.error(f"Error calling ai_service sync: {e}")
 
     def perform_create(self, serializer):
         product = serializer.save()

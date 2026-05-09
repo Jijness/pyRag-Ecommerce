@@ -17,14 +17,11 @@ if hasattr(sys.stdout, "buffer"):
 BASE = {
     "auth": "http://localhost:8001",
     "product": "http://localhost:8002",
-    "customer": "http://localhost:8004",
-    "staff": "http://localhost:8005",
-    "marketing": "http://localhost:8006",
-    "inventory": "http://localhost:8007",
-    "content": "http://localhost:8008",
-    "interaction": "http://localhost:8009",
-    "analytics": "http://localhost:8010",
-    "behavior": "http://localhost:8013",
+    "cart": "http://localhost:8003",
+    "order": "http://localhost:8004",
+    "payment": "http://localhost:8005",
+    "shipping": "http://localhost:8006",
+    "ai": "http://localhost:8007",
 }
 
 
@@ -90,14 +87,8 @@ def wait_services():
     health_urls = [
         f"{BASE['auth']}/health",
         f"{BASE['product']}/health",
-        f"{BASE['customer']}/health",
-        f"{BASE['staff']}/health",
-        f"{BASE['marketing']}/health",
-        f"{BASE['inventory']}/health",
-        f"{BASE['content']}/health",
-        f"{BASE['interaction']}/health",
-        f"{BASE['analytics']}/health",
-        f"{BASE['behavior']}/health",
+        f"{BASE['cart']}/health",
+        f"{BASE['order']}/health",
     ]
     for url in health_urls:
         log_step(f"Waiting for {url}")
@@ -111,8 +102,6 @@ def wait_services():
                     break
             except Exception:
                 pass
-            if attempt in (1, 5, 10, 20, 30, 40):
-                log_warn(f"Still waiting ({attempt}/40): {url}")
             time.sleep(2)
         if not ok:
             log_warn(f"Health not ready: {url}")
@@ -212,188 +201,7 @@ def main():
         if created:
             product_ids.append(created["id"])
 
-    existing = get(f"{BASE['product']}/products?limit=50") or []
-    if not product_ids:
-        product_ids = [item["id"] for item in existing[:10]]
-
-    log("\n=== Seeding Product Ratings & Reviews ===")
-    if product_ids:
-        post(
-            f"{BASE['product']}/ratings",
-            {"product_id": product_ids[0], "customer_id": customer_id, "score": 5},
-            "rating",
-        )
-        post(
-            f"{BASE['product']}/reviews",
-            {
-                "product_id": product_ids[0],
-                "customer_id": customer_id,
-                "title": "Rất tốt",
-                "body": "Sản phẩm hữu ích, đúng với mô tả.",
-            },
-            "review",
-        )
-
-    log("\n=== Seeding Marketing ===")
-    post(
-        f"{BASE['marketing']}/coupons",
-        {"code": "SALE20", "discount_percent": 20, "min_order_value": 100000, "max_uses": 100},
-        "SALE20",
-    )
-    post(
-        f"{BASE['marketing']}/promotions",
-        {
-            "name": "Mùa Tựu Trường",
-            "description": "Giảm giá cho sách, dụng cụ học tập và phụ kiện đi học.",
-            "discount_percent": 10,
-        },
-        "Promo",
-    )
-    now = datetime.now(timezone.utc)
-    if product_ids:
-        post(
-            f"{BASE['marketing']}/flash-sales",
-            {
-                "name": "Flash Sale tựu trường",
-                "discount_percent": 25,
-                "max_quantity": 50,
-                "start_at": now.isoformat(),
-                "end_at": (now + timedelta(days=3)).isoformat(),
-                "product_id": product_ids[0],
-            },
-            "FlashSale",
-        )
-    post(f"{BASE['marketing']}/tiers/seed", {}, "Seed Tiers")
-
-    log("\n=== Seeding Customer Data ===")
-    profile = post(
-        f"{BASE['customer']}/profile",
-        {"customer_id": customer_id, "phone": "0912345678", "bio": "Yêu mua sắm đồ học tập và quà tặng nhỏ."},
-        "Profile",
-        retries=2,
-        delay=1,
-    )
-    if not profile:
-        profile = get(f"{BASE['customer']}/profile/{customer_id}") or {"id": 1}
-    profile_id = profile.get("id", 1)
-    post(
-        f"{BASE['customer']}/addresses",
-        {"customer_profile_id": profile_id, "street": "123 Đường A", "city": "TP.HCM", "state": "Q1"},
-        "Address",
-    )
-    if product_ids:
-        post(f"{BASE['customer']}/wishlist/{customer_id}/toggle/{product_ids[0]}", {}, "Wishlist")
-
-    log("\n=== Seeding Staff / Inventory / Content ===")
-    department = post(
-        f"{BASE['staff']}/departments",
-        {"name": "IT", "description": "Tech Team"},
-        "Department",
-        retries=2,
-        delay=1,
-    )
-    if not department:
-        departments = get(f"{BASE['staff']}/departments") or []
-        department = departments[0] if departments else {"id": 1}
-    department_id = department.get("id", 1)
-    post(
-        f"{BASE['staff']}/members",
-        {"staff_id": staff_id, "department_id": department_id, "phone": "0900000000", "salary": 15000000},
-        "Staff Member",
-    )
-    post(
-        f"{BASE['inventory']}/warehouses",
-        {"name": "Kho Miền Nam", "location": "TPHCM", "capacity": 5000},
-        "Warehouse",
-    )
-    post(
-        f"{BASE['inventory']}/suppliers",
-        {"name": "Campus Vietnam", "contact_name": "CSKH", "email": "hello@campus.vn"},
-        "Supplier",
-    )
-    post(
-        f"{BASE['content']}/banners",
-        {
-            "title": "Back To School",
-            "subtitle": "Ưu đãi mùa tựu trường",
-            "image_url": "https://example.com/banner.jpg",
-            "link_url": "/",
-            "order": 1,
-        },
-        "Banner",
-    )
-    post(
-        f"{BASE['content']}/blog",
-        {
-            "title": "Top sản phẩm mùa tựu trường",
-            "slug": "top-san-pham-mua-tuu-truong",
-            "body": "Gợi ý sách, bút, ba lô và quà tặng cho mùa tựu trường.",
-            "author_name": "Admin Staff",
-        },
-        "Blog",
-    )
-    post(
-        f"{BASE['interaction']}/gift-cards",
-        {
-            "amount": 100000,
-            "buyer_customer_id": customer_id,
-            "recipient_email": "friend@example.com",
-            "message": "Happy learning!",
-        },
-        "GiftCard",
-    )
-
-    log("\n=== Seeding Analytics ===")
-    post(
-        f"{BASE['analytics']}/search-history",
-        {"customer_id": customer_id, "query": "lego creative", "results_count": 1},
-        "Search",
-    )
-    if product_ids:
-        post(
-            f"{BASE['analytics']}/recently-viewed",
-            {"customer_id": customer_id, "product_id": product_ids[0]},
-            "Recent view",
-        )
-
-    log("\n=== Seeding Behavior ===")
-    post(
-        f"{BASE['behavior']}/events",
-        {"customer_id": customer_id, "event_type": "search_performed", "query": "casio học tập", "source": "seed"},
-        "Behavior search",
-    )
-    if product_ids:
-        first_product = DEFAULT_PRODUCTS[0]
-        category_lookup = {item["slug"]: item["name"] for item in DEFAULT_CATEGORIES}
-        category_name = category_lookup[first_product["category_slug"]]
-        post(
-            f"{BASE['behavior']}/events",
-            {
-                "customer_id": customer_id,
-                "event_type": "product_viewed",
-                "product_id": product_ids[0],
-                "category_name": category_name,
-                "price": first_product["price"],
-                "source": "seed",
-            },
-            "Behavior view",
-        )
-        post(
-            f"{BASE['behavior']}/events",
-            {
-                "customer_id": customer_id,
-                "event_type": "cart_added",
-                "product_id": product_ids[0],
-                "category_name": category_name,
-                "price": first_product["price"],
-                "quantity": 1,
-                "source": "seed",
-            },
-            "Behavior cart",
-        )
-        post(f"{BASE['behavior']}/profiles/{customer_id}/refresh", {}, "Refresh behavior profile")
-
-    log("\nSeed completed.")
+    log("\nSeed completed for Auth and Product.")
 
 
 if __name__ == "__main__":
